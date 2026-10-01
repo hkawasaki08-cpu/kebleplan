@@ -1,0 +1,987 @@
+!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>間取り動線・距離計測ツール (試用版)</title>
+  <!-- PDF.js ライブラリ -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+      overscroll-behavior: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #222; color: #fff;
+    }
+    body { display: flex; flex-direction: column; }
+    header {
+      background: #1a73e8; color: white; padding: 6px 10px; display: flex;
+      flex-wrap: wrap; align-items: center; gap: 5px; z-index: 20; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .app-title-ver {
+      font-size: 11px; font-weight: 800; background: rgba(0, 0, 0, 0.25);
+      padding: 4px 6px; border-radius: 4px; white-space: nowrap; border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .btn {
+      background: white; color: #1a73e8; border: none; padding: 5px 8px;
+      border-radius: 5px; font-weight: bold; font-size: 12px; cursor: pointer;
+    }
+    .btn.active { background: #ffeb3b; color: #000; }
+    .btn-memo { background: #4caf50; color: white; }
+    .page-ctrls {
+      display: none; align-items: center; gap: 3px; background: rgba(0,0,0,0.25);
+      padding: 2px 5px; border-radius: 4px; font-size: 11px; font-weight: bold;
+    }
+    .page-btn {
+      background: white; color: #333; border: none; padding: 2px 5px;
+      border-radius: 3px; font-weight: bold; cursor: pointer; font-size: 10px;
+    }
+    #stage-container {
+      flex: 1; position: relative; overflow: hidden; touch-action: none; background: #2b2b2b;
+    }
+    canvas { position: absolute; top: 0; left: 0; touch-action: none; }
+
+    /* 距離表示メーター */
+    .distance-banner {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(15, 15, 15, 0.92); border: 2px solid #ffd54f; padding: 6px 16px;
+      border-radius: 28px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: flex;
+      align-items: center; gap: 6px; z-index: 25; cursor: pointer; white-space: nowrap; pointer-events: auto;
+    }
+    .distance-banner:active { background: #2a2a2a; border-color: #fff; }
+    .distance-label { font-size: 11px; font-weight: bold; color: #bbb; }
+    .distance-val { font-size: 26px; font-weight: 900; color: #ffd54f; letter-spacing: 0.5px; min-width: 65px; text-align: right; }
+    .distance-unit-badge { font-size: 13px; font-weight: 800; color: #111; background: #ffd54f; padding: 2px 6px; border-radius: 6px; margin-left: 2px; }
+    .distance-hint { font-size: 9px; color: #888; margin-left: 2px; }
+
+    #status-msg {
+      position: absolute; top: 58px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.85); color: white; padding: 4px 12px; border-radius: 12px;
+      font-size: 11px; pointer-events: none; white-space: nowrap; max-width: 85%;
+      overflow: hidden; text-overflow: ellipsis; z-index: 15;
+    }
+
+    /* 右上フロートパネル */
+    .floating-box {
+      display: none; position: absolute; top: 10px; right: 10px; background: rgba(255, 255, 255, 0.98);
+      color: #222; padding: 10px 12px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+      z-index: 30; width: 210px; text-align: center;
+    }
+    .floating-box h4 { margin: 0 0 4px 0; font-size: 13px; color: #1a73e8; }
+    .floating-box p { margin: 0 0 6px 0; font-size: 11px; color: #555; line-height: 1.2; }
+    .box-input {
+      width: 100%; font-size: 16px; font-weight: bold; padding: 5px; border: 2px solid #1a73e8;
+      border-radius: 5px; text-align: center; margin-bottom: 6px; outline: none;
+    }
+    .box-btns { display: flex; gap: 5px; }
+    .box-btn { flex: 1; padding: 6px; border: none; border-radius: 5px; font-weight: bold; font-size: 11px; cursor: pointer; }
+
+    /* メモパネル */
+    #memoPanel {
+      position: absolute; top: 0; right: 0; bottom: 0; width: 280px; max-width: 80%;
+      background: rgba(30, 30, 30, 0.96); backdrop-filter: blur(8px); box-shadow: -4px 0 16px rgba(0,0,0,0.5);
+      z-index: 40; display: flex; flex-direction: column; transform: translateX(100%);
+      transition: transform 0.25s ease; color: white;
+    }
+    #memoPanel.open { transform: translateX(0); }
+    .memo-header {
+      padding: 10px 12px; background: #1a73e8; display: flex; align-items: center;
+      justify-content: space-between; font-weight: bold; font-size: 13px;
+    }
+    .memo-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .memo-item {
+      background: #383838; padding: 8px 10px; border-radius: 6px; border-left: 4px solid #4caf50;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .memo-item-title { font-weight: bold; font-size: 12px; }
+    .memo-item-dist { color: #ffd54f; font-weight: bold; font-size: 13px; }
+    .memo-item-del { background: none; border: none; color: #ff5252; font-size: 16px; cursor: pointer; padding: 2px 6px; }
+    .memo-footer { padding: 8px; background: #222; display: flex; gap: 6px; }
+
+    /* 十字コントローラー */
+    .dpad-container {
+      position: absolute; left: 12px; bottom: 12px; width: 110px; height: 110px;
+      display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr;
+      gap: 3px; z-index: 15; background: rgba(0,0,0,0.35); padding: 4px; border-radius: 14px;
+    }
+    .d-btn {
+      background: rgba(255, 255, 255, 0.9); color: #222; border: none; border-radius: 6px;
+      font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    .d-btn:active { background: #ffd54f; }
+    #btnUp    { grid-column: 2; grid-row: 1; }
+    #btnLeft  { grid-column: 1; grid-row: 2; }
+    #btnReset { grid-column: 2; grid-row: 2; font-size: 10px; background: #e0e0e0; }
+    #btnRight { grid-column: 3; grid-row: 2; }
+    #btnDown  { grid-column: 2; grid-row: 3; }
+
+    /* ズームボタン */
+    .zoom-ctrls {
+      position: absolute; right: 12px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 15;
+    }
+    .z-btn {
+      width: 44px; height: 44px; border-radius: 22px; background: rgba(255,255,255,0.92);
+      color: #222; border: none; box-shadow: 0 3px 6px rgba(0,0,0,0.35); font-size: 22px;
+      font-weight: bold; display: flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    .z-btn:active { background: #ffd54f; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="app-title-ver">H M-r ver0.1 試用版</div>
+  <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
+  <button class="btn" id="btnLoad">図面/PDF読込</button>
+  <button class="btn" id="btnSample" style="background:#e8f0fe;">テスト図面</button>
+  
+  <div class="page-ctrls" id="pdfControls">
+    <button class="page-btn" id="btnPrevPage">◀</button>
+    <span id="pageInfo">1 / 1</span>
+    <button class="page-btn" id="btnNextPage">▶</button>
+  </div>
+
+  <button id="btnCalib" class="btn active">① 縮尺設定</button>
+  <button id="btnPolyline" class="btn">② 角タップ</button>
+  <button id="btnMeasure" class="btn">③ なぞる</button>
+  <button id="btnUndo" class="btn" style="background:#ff9800;color:#fff;">1つ戻る</button>
+  <button id="btnSaveMemo" class="btn btn-memo">📝 保存</button>
+  <button id="btnToggleMemo" class="btn" style="background:#5c6bc0;color:#fff;">📋 (<span id="memoCount">0</span>)</button>
+  <button id="btnClear" class="btn" style="background:#ff5252;color:#fff;">消去</button>
+</header>
+
+<div id="stage-container">
+  <canvas id="mainCanvas"></canvas>
+
+  <!-- タップで m / mm 切替可能なバナー -->
+  <div class="distance-banner" id="bannerUnitToggle" title="タップして単位を切り替え">
+    <span class="distance-label">距離</span>
+    <span class="distance-val" id="resVal">--</span>
+    <span class="distance-unit-badge" id="resUnit">m</span>
+    <span class="distance-hint">切替</span>
+  </div>
+
+  <div id="status-msg">テスト図面を表示中：寸法線（1820など）の端と端をタップ</div>
+
+  <!-- 縮尺モーダル -->
+  <div id="calibModal" class="floating-box">
+    <h4>長さ入力 (mm)</h4>
+    <p>図面の数値を入力 (例: 1820)</p>
+    <input type="number" id="calibInput" class="box-input" step="1" value="1820">
+    <div class="box-btns">
+      <button class="box-btn" id="btnCancelCalib" style="background:#ddd;">取消</button>
+      <button class="box-btn" id="btnOkCalib" style="background:#1a73e8;color:#fff;">決定</button>
+    </div>
+  </div>
+
+  <!-- メモ保存モーダル -->
+  <div id="memoSaveModal" class="floating-box">
+    <h4>📝 メモ保存</h4>
+    <p id="memoSavePrompt">距離: --</p>
+    <input type="text" id="memoNameInput" class="box-input" placeholder="例: 玄関〜LDK">
+    <div class="box-btns">
+      <button class="box-btn" id="btnCancelSaveMemo" style="background:#ddd;">取消</button>
+      <button class="box-btn" id="btnOkSaveMemo" style="background:#4caf50;color:#fff;">保存</button>
+    </div>
+  </div>
+
+  <!-- 一時メモ一覧パネル -->
+  <div id="memoPanel">
+    <div class="memo-header">
+      <span>一時メモ一覧</span>
+      <button id="btnCloseMemo" style="background:none;border:none;color:white;font-size:16px;cursor:pointer;">✕</button>
+    </div>
+    <div class="memo-list" id="memoListContainer">
+      <div style="text-align:center;color:#888;margin-top:20px;font-size:12px;">メモがありません</div>
+    </div>
+    <div class="memo-footer">
+      <button id="btnCopyMemo" class="btn" style="flex:1;">全コピー</button>
+      <button id="btnClearAllMemo" class="btn" style="background:#ff5252;color:white;">全削除</button>
+    </div>
+  </div>
+
+  <!-- 十字キー -->
+  <div class="dpad-container">
+    <button class="d-btn" id="btnUp">▲</button>
+    <button class="d-btn" id="btnLeft">◀</button>
+    <button class="d-btn" id="btnReset">全体</button>
+    <button class="d-btn" id="btnRight">▶</button>
+    <button class="d-btn" id="btnDown">▼</button>
+  </div>
+
+  <!-- ズームボタン -->
+  <div class="zoom-ctrls">
+    <button class="z-btn" id="btnZoomIn">＋</button>
+    <button class="z-btn" id="btnZoomOut">ー</button>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('mainCanvas');
+  const ctx = canvas.getContext('2d');
+  const container = document.getElementById('stage-container');
+  const statusMsg = document.getElementById('status-msg');
+
+  let displayUnit = 'm';
+  const resVal = document.getElementById('resVal');
+  const resUnit = document.getElementById('resUnit');
+  const bannerUnitToggle = document.getElementById('bannerUnitToggle');
+
+  const calibModal = document.getElementById('calibModal');
+  const calibInput = document.getElementById('calibInput');
+
+  const pdfControls = document.getElementById('pdfControls');
+  const pageInfo = document.getElementById('pageInfo');
+  const btnPrevPage = document.getElementById('btnPrevPage');
+  const btnNextPage = document.getElementById('btnNextPage');
+
+  const btnSaveMemo = document.getElementById('btnSaveMemo');
+  const memoSaveModal = document.getElementById('memoSaveModal');
+  const memoSavePrompt = document.getElementById('memoSavePrompt');
+  const memoNameInput = document.getElementById('memoNameInput');
+  const btnOkSaveMemo = document.getElementById('btnOkSaveMemo');
+  const btnCancelSaveMemo = document.getElementById('btnCancelSaveMemo');
+
+  const btnToggleMemo = document.getElementById('btnToggleMemo');
+  const btnCloseMemo = document.getElementById('btnCloseMemo');
+  const memoPanel = document.getElementById('memoPanel');
+  const memoListContainer = document.getElementById('memoListContainer');
+  const memoCount = document.getElementById('memoCount');
+  const btnCopyMemo = document.getElementById('btnCopyMemo');
+  const btnClearAllMemo = document.getElementById('btnClearAllMemo');
+
+  let mode = 'calib';
+  let pixelsPerMeter = null;
+  let currentDocSource = null;
+  let imgLoaded = false;
+  let currentMeters = 0;
+
+  let memoList = [];
+  let pdfDoc = null;
+  let currentPdfPage = 1;
+
+  let scale = 1.0;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  let calibPoints = [];
+  let polylinePoints = [];
+
+  let isFreehandDrawing = false;
+  let currentStroke = [];
+  let completedStrokes = [];
+
+  function updateDistanceDisplay() {
+    if (currentMeters <= 0) {
+      resVal.innerText = "--";
+      resUnit.innerText = displayUnit;
+      return;
+    }
+    if (displayUnit === 'm') {
+      resVal.innerText = currentMeters.toFixed(2);
+      resUnit.innerText = 'm';
+    } else {
+      const mmVal = Math.round(currentMeters * 1000);
+      resVal.innerText = mmVal.toLocaleString();
+      resUnit.innerText = 'mm';
+    }
+  }
+
+  bannerUnitToggle.onclick = (e) => {
+    e.stopPropagation();
+    displayUnit = (displayUnit === 'm') ? 'mm' : 'm';
+    updateDistanceDisplay();
+    updateMemoView();
+  };
+
+  function resizeCanvas() {
+    canvas.width = container.clientWidth;
+    canvas.height = container.clientHeight;
+    redraw();
+  }
+  window.addEventListener('resize', resizeCanvas);
+
+  function resetView() {
+    if (!imgLoaded || !currentDocSource) return;
+    const pad = 15;
+    const w = currentDocSource.width;
+    const h = currentDocSource.height;
+    scale = Math.min((canvas.width - pad*2) / w, (canvas.height - pad*2) / h);
+    offsetX = (canvas.width - w * scale) / 2;
+    offsetY = (canvas.height - h * scale) / 2;
+    redraw();
+  }
+
+  // --- テスト用サンプル平面図の自動生成 ---
+  function generateTestPlan() {
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = 1600;
+    offCanvas.height = 1100;
+    const octx = offCanvas.getContext('2d');
+
+    // 背景
+    octx.fillStyle = '#ffffff';
+    octx.fillRect(0, 0, 1600, 1100);
+
+    // 外枠グリッド（方眼）
+    octx.strokeStyle = '#f0f0f0';
+    octx.lineWidth = 1;
+    for(let x = 0; x < 1600; x += 40){ octx.beginPath(); octx.moveTo(x, 0); octx.lineTo(x, 1100); octx.stroke(); }
+    for(let y = 0; y < 1100; y += 40){ octx.beginPath(); octx.moveTo(0, y); octx.lineTo(1600, y); octx.stroke(); }
+
+    // タイトル
+    octx.fillStyle = '#222';
+    octx.font = 'bold 30px sans-serif';
+    octx.fillText('【社内テスト用平面図】モデルプラン (縮尺検証用)', 120, 90);
+
+    // 部屋の外壁・内壁描画
+    octx.strokeStyle = '#222';
+    octx.lineWidth = 5;
+    // 建物全体外枠 (幅 10920mm相当 -> 1200px, 奥行 7280mm相当 -> 800px)
+    octx.strokeRect(200, 150, 1200, 800);
+
+    // 部屋の間仕切り
+    octx.lineWidth = 3;
+    // LDK (右側 600px x 800px)
+    octx.beginPath(); octx.moveTo(800, 150); octx.lineTo(800, 950); octx.stroke();
+    // 玄関・ホール (左上 300px x 350px)
+    octx.beginPath(); octx.moveTo(200, 500); octx.lineTo(800, 500); octx.stroke();
+    octx.beginPath(); octx.moveTo(500, 150); octx.lineTo(500, 500); octx.stroke();
+    // 洗面・浴室 (左下 300px x 450px)
+    octx.beginPath(); octx.moveTo(500, 500); octx.lineTo(500, 950); octx.stroke();
+    octx.beginPath(); octx.moveTo(200, 720); octx.lineTo(500, 720); octx.stroke();
+
+    // 部屋名テキスト
+    octx.fillStyle = '#444';
+    octx.font = 'bold 24px sans-serif';
+    octx.fillText('玄関', 320, 320);
+    octx.fillText('ホール / 廊下', 580, 320);
+    octx.fillText('LDK (居間・食堂・台所)', 1000, 550);
+    octx.fillText('洗面・脱衣室', 310, 620);
+    octx.fillText('浴室', 330, 840);
+    octx.fillText('和室 / 洋室', 590, 720);
+
+    // 寸法線描画（基準線：1820mm, 3640mm, 5460mm）
+    function drawDim(x1, y1, x2, y2, text) {
+      octx.strokeStyle = '#d32f2f';
+      octx.fillStyle = '#d32f2f';
+      octx.lineWidth = 2;
+      // 線
+      octx.beginPath(); octx.moveTo(x1, y1); octx.lineTo(x2, y2); octx.stroke();
+      // 端点目印
+      octx.beginPath(); octx.moveTo(x1 - 6, y1 - 10); octx.lineTo(x1 + 6, y1 + 10); octx.stroke();
+      octx.beginPath(); octx.moveTo(x2 - 6, y2 - 10); octx.lineTo(x2 + 6, y2 + 10); octx.stroke();
+      // テキスト
+      octx.font = 'bold 20px sans-serif';
+      octx.textAlign = 'center';
+      octx.fillText(text, (x1 + x2)/2, y1 - 10);
+      octx.textAlign = 'left';
+    }
+
+    // 上部寸法線 (200px = 1820mm, 400px = 3640mm, 600px = 5460mm)
+    drawDim(200, 130, 500, 130, '2,730 mm');
+    drawDim(500, 130, 800, 130, '2,730 mm');
+    drawDim(800, 130, 1400, 130, '5,460 mm');
+
+    // 下部全体の寸法線
+    drawDim(200, 990, 1400, 990, '10,920 mm (全体)');
+    drawDim(200, 1030, 600, 1030, '3,640 mm (テスト用)');
+
+    // 左側縦寸法線
+    octx.save();
+    octx.strokeStyle = '#d32f2f';
+    octx.fillStyle = '#d32f2f';
+    octx.lineWidth = 2;
+    octx.beginPath(); octx.moveTo(170, 150); octx.lineTo(170, 500); octx.stroke();
+    octx.beginPath(); octx.moveTo(160, 150); octx.lineTo(180, 150); octx.stroke();
+    octx.beginPath(); octx.moveTo(160, 500); octx.lineTo(180, 500); octx.stroke();
+    octx.font = 'bold 18px sans-serif';
+    octx.fillText('3,185 mm', 80, 335);
+
+    octx.beginPath(); octx.moveTo(170, 500); octx.lineTo(170, 950); octx.stroke();
+    octx.beginPath(); octx.moveTo(160, 950); octx.lineTo(180, 950); octx.stroke();
+    octx.fillText('4,095 mm', 80, 735);
+    octx.restore();
+
+    currentDocSource = offCanvas;
+    imgLoaded = true;
+    resizeCanvas();
+    resetView();
+    setMode('calib');
+    statusMsg.innerText = "テスト図面表示中：赤色の寸法線（3,640mm等）の2点をタップして縮尺設定";
+  }
+
+  document.getElementById('btnSample').onclick = () => {
+    generateTestPlan();
+  };
+
+  // 起動時にテスト平面図を初期読み込み
+  window.addEventListener('load', () => {
+    generateTestPlan();
+  });
+
+  document.getElementById('btnLoad').onclick = () => {
+    document.getElementById('fileInput').click();
+  };
+
+  document.getElementById('fileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    pixelsPerMeter = null;
+    calibPoints = [];
+    polylinePoints = [];
+    currentStroke = [];
+    completedStrokes = [];
+    currentMeters = 0;
+    updateDistanceDisplay();
+    pdfControls.style.display = 'none';
+
+    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+      statusMsg.innerText = "PDFを展開中...";
+      const fileReader = new FileReader();
+      fileReader.onload = async function() {
+        const typedarray = new Uint8Array(this.result);
+        try {
+          pdfDoc = await pdfjsLib.getDocument(typedarray).promise;
+          currentPdfPage = 1;
+          pdfControls.style.display = 'flex';
+          await renderPdfPage(currentPdfPage);
+        } catch (err) {
+          alert("PDF読み込み失敗: " + err.message);
+        }
+      };
+      fileReader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const img = new Image();
+        img.onload = () => {
+          currentDocSource = img;
+          imgLoaded = true;
+          resizeCanvas();
+          resetView();
+          setMode('calib');
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  async function renderPdfPage(pageNumber) {
+    if (!pdfDoc) return;
+    statusMsg.innerText = `PDF ${pageNumber} ページ目を描画中...`;
+    const page = await pdfDoc.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 2.2 });
+
+    const pdfCanvas = document.createElement('canvas');
+    const pdfCtx = pdfCanvas.getContext('2d');
+    pdfCanvas.width = viewport.width;
+    pdfCanvas.height = viewport.height;
+
+    await page.render({ canvasContext: pdfCtx, viewport: viewport }).promise;
+
+    currentDocSource = pdfCanvas;
+    imgLoaded = true;
+    pageInfo.innerText = `${pageNumber} / ${pdfDoc.numPages}`;
+
+    resizeCanvas();
+    resetView();
+    setMode('calib');
+  }
+
+  btnPrevPage.onclick = async () => {
+    if (pdfDoc && currentPdfPage > 1) {
+      currentPdfPage--;
+      calibPoints = [];
+      polylinePoints = [];
+      currentStroke = [];
+      completedStrokes = [];
+      await renderPdfPage(currentPdfPage);
+    }
+  };
+
+  btnNextPage.onclick = async () => {
+    if (pdfDoc && currentPdfPage < pdfDoc.numPages) {
+      currentPdfPage++;
+      calibPoints = [];
+      polylinePoints = [];
+      currentStroke = [];
+      completedStrokes = [];
+      await renderPdfPage(currentPdfPage);
+    }
+  };
+
+  const btnCalib = document.getElementById('btnCalib');
+  const btnPolyline = document.getElementById('btnPolyline');
+  const btnMeasure = document.getElementById('btnMeasure');
+
+  function setMode(m) {
+    mode = m;
+    btnCalib.className = 'btn' + (m === 'calib' ? ' active' : '');
+    btnPolyline.className = 'btn' + (m === 'polyline' ? ' active' : '');
+    btnMeasure.className = 'btn' + (m === 'measure' ? ' active' : '');
+
+    if (m === 'calib') {
+      calibPoints = [];
+      statusMsg.innerText = "寸法線の「始点」をタップ";
+    } else if (m === 'polyline') {
+      statusMsg.innerText = pixelsPerMeter 
+        ? "【角タップ】曲がり角をタップして動線を計測" 
+        : "先に「① 縮尺設定」を行ってください";
+    } else if (m === 'measure') {
+      statusMsg.innerText = pixelsPerMeter 
+        ? "【なぞる】指またはマウスで動線をなぞってください" 
+        : "先に「① 縮尺設定」を行ってください";
+    }
+    redraw();
+  }
+  btnCalib.onclick = () => setMode('calib');
+  btnPolyline.onclick = () => {
+    if (!pixelsPerMeter) { alert("先に「① 縮尺設定」を行ってください"); return; }
+    setMode('polyline');
+  };
+  btnMeasure.onclick = () => {
+    if (!pixelsPerMeter) { alert("先に「① 縮尺設定」を行ってください"); return; }
+    setMode('measure');
+  };
+
+  document.getElementById('btnUndo').onclick = () => {
+    if (mode === 'polyline' && polylinePoints.length > 0) {
+      polylinePoints.pop();
+      redraw();
+      if (pixelsPerMeter) {
+        if (polylinePoints.length < 2) {
+          currentMeters = 0;
+        } else {
+          const px = calculateLength(polylinePoints);
+          currentMeters = px / pixelsPerMeter;
+        }
+        updateDistanceDisplay();
+      }
+    } else if (mode === 'measure' && completedStrokes.length > 0) {
+      completedStrokes.pop();
+      redraw();
+      if (pixelsPerMeter) {
+        if (completedStrokes.length === 0) {
+          currentMeters = 0;
+        } else {
+          const last = completedStrokes[completedStrokes.length - 1];
+          currentMeters = calculateLength(last) / pixelsPerMeter;
+        }
+        updateDistanceDisplay();
+      }
+    }
+  };
+
+  document.getElementById('btnClear').onclick = () => {
+    polylinePoints = [];
+    currentStroke = [];
+    completedStrokes = [];
+    currentMeters = 0;
+    updateDistanceDisplay();
+    redraw();
+  };
+
+  function zoomAt(factor, cx, cy) {
+    cx = cx !== undefined ? cx : canvas.width / 2;
+    cy = cy !== undefined ? cy : canvas.height / 2;
+    const newScale = Math.min(Math.max(scale * factor, 0.05), 35.0);
+    offsetX = cx - (cx - offsetX) * (newScale / scale);
+    offsetY = cy - (cy - offsetY) * (newScale / scale);
+    scale = newScale;
+    redraw();
+  }
+  document.getElementById('btnZoomIn').onclick = () => zoomAt(1.35);
+  document.getElementById('btnZoomOut').onclick = () => zoomAt(0.75);
+  document.getElementById('btnReset').onclick = resetView;
+
+  // 十字キー
+  let panTimer = null;
+  function bindDpad(btnId, dx, dy) {
+    const btn = document.getElementById(btnId);
+    const step = 50;
+    const move = () => { offsetX += dx * step; offsetY += dy * step; redraw(); };
+    const start = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      move();
+      clearInterval(panTimer);
+      panTimer = setInterval(() => { offsetX += dx * 25; offsetY += dy * 25; redraw(); }, 60);
+    };
+    const stop = (e) => {
+      e.preventDefault();
+      clearInterval(panTimer);
+    };
+    btn.addEventListener('touchstart', start, { passive: false });
+    btn.addEventListener('touchend', stop);
+    btn.addEventListener('mousedown', start);
+    btn.addEventListener('mouseup', stop);
+    btn.addEventListener('mouseleave', stop);
+  }
+  bindDpad('btnUp',    0,  1);
+  bindDpad('btnDown',  0, -1);
+  bindDpad('btnLeft',  1,  0);
+  bindDpad('btnRight',-1,  0);
+
+  function toImgCoords(screenX, screenY) {
+    return {
+      x: (screenX - offsetX) / scale,
+      y: (screenY - offsetY) / scale
+    };
+  }
+  function dist(p1, p2) { return Math.hypot(p2.x - p1.x, p2.y - p1.y); }
+
+  function calculateLength(points) {
+    let len = 0;
+    for (let i = 1; i < points.length; i++) len += dist(points[i - 1], points[i]);
+    return len;
+  }
+
+  function redraw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!imgLoaded || !currentDocSource) return;
+
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+
+    ctx.drawImage(currentDocSource, 0, 0);
+
+    // 縮尺ポイント
+    calibPoints.forEach((p, idx) => {
+      ctx.fillStyle = '#ff1744';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 8 / scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 2 / scale;
+      ctx.font = `bold ${Math.max(12, 14 / scale)}px sans-serif`;
+      ctx.strokeText(`点${idx+1}`, p.x + 10/scale, p.y - 10/scale);
+      ctx.fillText(`点${idx+1}`, p.x + 10/scale, p.y - 10/scale);
+    });
+
+    if (calibPoints.length === 2) {
+      ctx.strokeStyle = '#ff1744';
+      ctx.lineWidth = 3 / scale;
+      ctx.setLineDash([6 / scale, 4 / scale]);
+      ctx.beginPath();
+      ctx.moveTo(calibPoints[0].x, calibPoints[0].y);
+      ctx.lineTo(calibPoints[1].x, calibPoints[1].y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 保存済みのフリーハンドなぞり線
+    completedStrokes.forEach(s => drawPath(s, '#4caf50', 5));
+    if (currentStroke.length > 0) drawPath(currentStroke, '#ff9800', 5);
+
+    // 角タップ（ポリライン）
+    if (polylinePoints.length > 0) {
+      drawPath(polylinePoints, '#00bcd4', 4);
+      polylinePoints.forEach((p, i) => {
+        ctx.fillStyle = '#0097a7';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 6 / scale, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2 / scale;
+        ctx.font = `bold ${Math.max(10, 12 / scale)}px sans-serif`;
+        ctx.strokeText(`${i+1}`, p.x + 8/scale, p.y - 8/scale);
+        ctx.fillText(`${i+1}`, p.x + 8/scale, p.y - 8/scale);
+      });
+    }
+
+    ctx.restore();
+  }
+
+  function drawPath(points, color, baseWidth = 4) {
+    if (points.length < 2) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = baseWidth / scale;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
+  }
+
+  // --- タッチ & マウス入力ハンドラ ---
+  let isPinching = false;
+  let pinchStartDist = 0;
+  let pinchStartScale = 1.0;
+  let pinchStartCenter = { x: 0, y: 0 };
+  let pinchStartOffset = { x: 0, y: 0 };
+
+  function handleStartAt(clientX, clientY) {
+    if (!imgLoaded) return;
+    const rect = canvas.getBoundingClientRect();
+    const ip = toImgCoords(clientX - rect.left, clientY - rect.top);
+
+    if (mode === 'calib') {
+      calibPoints.push(ip);
+      redraw();
+      if (calibPoints.length === 1) {
+        statusMsg.innerText = "寸法線の「終点」をタップ";
+      } else if (calibPoints.length === 2) {
+        statusMsg.innerText = "右上で数値を入力してください";
+        calibModal.style.display = 'block';
+        calibInput.focus();
+      }
+    } else if (mode === 'polyline') {
+      polylinePoints.push(ip);
+      redraw();
+      if (pixelsPerMeter && polylinePoints.length >= 2) {
+        const px = calculateLength(polylinePoints);
+        currentMeters = px / pixelsPerMeter;
+        updateDistanceDisplay();
+      }
+    } else if (mode === 'measure') {
+      isFreehandDrawing = true;
+      currentStroke = [ip];
+      redraw();
+    }
+  }
+
+  function handleMoveAt(clientX, clientY) {
+    if (!isFreehandDrawing || mode !== 'measure' || !imgLoaded) return;
+    const rect = canvas.getBoundingClientRect();
+    const rawPos = toImgCoords(clientX - rect.left, clientY - rect.top);
+    const last = currentStroke[currentStroke.length - 1];
+    const minThreshold = 3.5 / scale;
+
+    if (dist(last, rawPos) > minThreshold) {
+      const smoothedPos = {
+        x: last.x * 0.35 + rawPos.x * 0.65,
+        y: last.y * 0.35 + rawPos.y * 0.65
+      };
+      currentStroke.push(smoothedPos);
+      redraw();
+
+      if (pixelsPerMeter) {
+        const px = calculateLength(currentStroke);
+        currentMeters = px / pixelsPerMeter;
+        updateDistanceDisplay();
+      }
+    }
+  }
+
+  function handleEnd() {
+    if (!isFreehandDrawing) return;
+    isFreehandDrawing = false;
+    if (currentStroke.length > 1) {
+      completedStrokes.push([...currentStroke]);
+    }
+    currentStroke = [];
+    redraw();
+  }
+
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+      isPinching = true;
+      isFreehandDrawing = false;
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      pinchStartDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      pinchStartScale = scale;
+      pinchStartCenter = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
+      pinchStartOffset = { x: offsetX, y: offsetY };
+      return;
+    }
+    if (e.touches.length === 1 && !isPinching) {
+      handleStartAt(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  }, { passive: false });
+
+  window.addEventListener('touchmove', (e) => {
+    if (isPinching && e.touches.length === 2) {
+      e.preventDefault();
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const curDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const curCenter = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
+
+      const factor = curDist / (pinchStartDist || 1);
+      const newScale = Math.min(Math.max(pinchStartScale * factor, 0.05), 35.0);
+
+      const rect = canvas.getBoundingClientRect();
+      const originX = pinchStartCenter.x - rect.left;
+      const originY = pinchStartCenter.y - rect.top;
+
+      offsetX = originX - (originX - pinchStartOffset.x) * (newScale / pinchStartScale) + (curCenter.x - pinchStartCenter.x);
+      offsetY = originY - (originY - pinchStartOffset.y) * (newScale / pinchStartScale) + (curCenter.y - pinchStartCenter.y);
+      scale = newScale;
+
+      redraw();
+    } else if (e.touches.length === 1 && !isPinching) {
+      handleMoveAt(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  }, { passive: false });
+
+  window.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) isPinching = false;
+    if (e.touches.length === 0) handleEnd();
+  });
+
+  // PC マウス
+  let isMouseRightDown = false;
+  let lastMouse = { x: 0, y: 0 };
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 0) {
+      handleStartAt(e.clientX, e.clientY);
+    } else if (e.button === 2 || e.button === 1) {
+      isMouseRightDown = true;
+      lastMouse = { x: e.clientX, y: e.clientY };
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (isMouseRightDown) {
+      offsetX += e.clientX - lastMouse.x;
+      offsetY += e.clientY - lastMouse.y;
+      lastMouse = { x: e.clientX, y: e.clientY };
+      redraw();
+    } else {
+      handleMoveAt(e.clientX, e.clientY);
+    }
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) handleEnd();
+    isMouseRightDown = false;
+  });
+
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 0.87;
+    const rect = canvas.getBoundingClientRect();
+    zoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
+  }, { passive: false });
+
+  // 縮尺決定
+  document.getElementById('btnOkCalib').onclick = () => {
+    const valMm = parseFloat(calibInput.value);
+    if (!isNaN(valMm) && valMm > 0 && calibPoints.length === 2) {
+      const pxLen = dist(calibPoints[0], calibPoints[1]);
+      pixelsPerMeter = pxLen / (valMm / 1000.0);
+      calibModal.style.display = 'none';
+      setMode('polyline');
+      statusMsg.innerText = `縮尺設定完了！「角タップ」または「なぞる」で計測できます`;
+    } else {
+      alert("数値を入力してください（例: 1820）");
+    }
+  };
+
+  document.getElementById('btnCancelCalib').onclick = () => {
+    calibPoints = [];
+    calibModal.style.display = 'none';
+    setMode('calib');
+  };
+
+  // メモ機能
+  function updateMemoView() {
+    memoCount.innerText = memoList.length;
+    if (memoList.length === 0) {
+      memoListContainer.innerHTML = '<div style="text-align:center;color:#888;margin-top:20px;font-size:12px;">メモがありません</div>';
+      return;
+    }
+    memoListContainer.innerHTML = '';
+    memoList.forEach((item, index) => {
+      const div = document.createElement('div');
+      div.className = 'memo-item';
+      const distStr = (displayUnit === 'm')
+        ? `${item.distance.toFixed(2)} m`
+        : `${Math.round(item.distance * 1000).toLocaleString()} mm`;
+
+      div.innerHTML = `
+        <div>
+          <div class="memo-item-title">${item.title}</div>
+          <div class="memo-item-dist">${distStr}</div>
+        </div>
+        <button class="memo-item-del" data-index="${index}">✕</button>
+      `;
+      memoListContainer.appendChild(div);
+    });
+
+    document.querySelectorAll('.memo-item-del').forEach(btn => {
+      btn.onclick = (e) => {
+        const idx = parseInt(e.target.getAttribute('data-index'), 10);
+        memoList.splice(idx, 1);
+        updateMemoView();
+      };
+    });
+  }
+
+  btnSaveMemo.onclick = () => {
+    if (currentMeters <= 0) {
+      alert("まだ距離が計測されていません。計測を行ってから保存してください。");
+      return;
+    }
+    const distStr = (displayUnit === 'm')
+      ? `${currentMeters.toFixed(2)} m`
+      : `${Math.round(currentMeters * 1000).toLocaleString()} mm`;
+    memoSavePrompt.innerText = `距離: ${distStr}`;
+    memoNameInput.value = `ルート ${memoList.length + 1}`;
+    memoSaveModal.style.display = 'block';
+    memoNameInput.focus();
+  };
+
+  btnOkSaveMemo.onclick = () => {
+    const title = memoNameInput.value.trim() || `ルート ${memoList.length + 1}`;
+    memoList.push({
+      title: title,
+      distance: currentMeters
+    });
+    memoSaveModal.style.display = 'none';
+    updateMemoView();
+    memoPanel.classList.add('open');
+  };
+
+  btnCancelSaveMemo.onclick = () => {
+    memoSaveModal.style.display = 'none';
+  };
+
+  btnToggleMemo.onclick = () => memoPanel.classList.toggle('open');
+  btnCloseMemo.onclick = () => memoPanel.classList.remove('open');
+
+  btnCopyMemo.onclick = () => {
+    if (memoList.length === 0) return;
+    const text = memoList.map((m, i) => {
+      const d = (displayUnit === 'm') ? `${m.distance.toFixed(2)} m` : `${Math.round(m.distance * 1000).toLocaleString()} mm`;
+      return `${i + 1}. ${m.title}: ${d}`;
+    }).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      alert("メモ一覧をコピーしました！");
+    }).catch(() => {
+      alert(text);
+    });
+  };
+
+  btnClearAllMemo.onclick = () => {
+    if (memoList.length === 0) return;
+    memoList = [];
+    updateMemoView();
+  };
+
+  resizeCanvas();
+</script>
+</body>
+</html>
