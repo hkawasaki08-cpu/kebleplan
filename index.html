@@ -61,21 +61,24 @@
       overflow: hidden; text-overflow: ellipsis; z-index: 15;
     }
 
+    /* 縮尺設定・入力モーダル：背景透過（すりガラス効果） */
     .floating-box {
-      display: none; position: absolute; top: 10px; right: 10px; background: rgba(255, 255, 255, 0.98);
-      color: #222; padding: 10px 12px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.45);
-      z-index: 30; width: 210px; text-align: center;
+      display: none; position: absolute; top: 10px; right: 10px;
+      background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      color: #111; padding: 10px 12px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      border: 1px solid rgba(255, 255, 255, 0.4); z-index: 30; width: 210px; text-align: center;
     }
     .floating-box h4 { margin: 0 0 4px 0; font-size: 13px; color: #1a73e8; }
-    .floating-box p { margin: 0 0 6px 0; font-size: 11px; color: #555; line-height: 1.2; }
+    .floating-box p { margin: 0 0 6px 0; font-size: 11px; color: #333; line-height: 1.2; }
     .box-input {
       width: 100%; font-size: 16px; font-weight: bold; padding: 5px; border: 2px solid #1a73e8;
       border-radius: 5px; text-align: center; margin-bottom: 6px; outline: none;
+      background: rgba(255, 255, 255, 0.9);
     }
     .box-btns { display: flex; gap: 5px; }
     .box-btn { flex: 1; padding: 6px; border: none; border-radius: 5px; font-weight: bold; font-size: 11px; cursor: pointer; }
 
-    /* メモ一覧ウィンドウ：背景透過、幅コンパクト化 */
+    /* メモ一覧ウィンドウ */
     #memoPanel {
       position: absolute; top: 0; right: 0; bottom: 0; width: 95px; max-width: 30%;
       background: rgba(20, 20, 20, 0.65); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
@@ -264,7 +267,6 @@
   let imgLoaded = false;
   let currentMeters = 0;
 
-  // キャッシュからメモを復元
   const STORAGE_KEY = 'kebleplan_memo_cache';
   let memoList = [];
   try {
@@ -1020,10 +1022,9 @@
     setMode('calib');
   };
 
-  // メモ表示更新（キャッシュ保存対応）
   function updateMemoView() {
     memoCount.innerText = memoList.length;
-    saveMemoToStorage(); // キャッシュ保存
+    saveMemoToStorage();
 
     if (memoList.length === 0) {
       memoListContainer.innerHTML = '<div style="text-align:center;color:#aaa;margin-top:15px;font-size:9px;">メモなし</div>';
@@ -1047,7 +1048,6 @@
       memoListContainer.appendChild(div);
     });
 
-    // タイトルのインライン編集保存
     document.querySelectorAll('.memo-item-title').forEach(el => {
       el.onblur = (e) => {
         const idx = parseInt(e.target.getAttribute('data-index'), 10);
@@ -1125,7 +1125,6 @@
     });
   };
 
-  // 全削除ボタン：キャッシュも完全に消去
   btnClearAllMemo.onclick = () => {
     if (memoList.length === 0) return;
     if (confirm("メモをすべて削除しますか？")) {
@@ -1138,7 +1137,7 @@
   window.addEventListener('load', () => {
     resizeCanvas();
     loadSamplePlan();
-    updateMemoView(); // 保存済みキャッシュの初期描画
+    updateMemoView();
   });
 </script>
 </body>
