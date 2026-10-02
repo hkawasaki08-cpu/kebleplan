@@ -147,7 +147,6 @@
 <body>
 
 <header>
-  <!-- バージョン表記 ver0.6 -->
   <div class="app-title-ver">H M-r ver0.6</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
@@ -300,6 +299,12 @@
   let completedStrokes = [];
 
   let isInteractingUI = false;
+
+  function closeMemoPanel() {
+    if (memoPanel.classList.contains('open')) {
+      memoPanel.classList.remove('open');
+    }
+  }
 
   function updateDistanceDisplay() {
     if (currentMeters <= 0) {
@@ -559,6 +564,7 @@
     btnMeasure.className = 'btn' + (m === 'measure' ? ' active' : '');
 
     if (m === 'calib') {
+      closeMemoPanel(); // 縮尺設定に入った際にメモウィンドウを自動クローズ
       calibPoints = [];
       statusMsg.innerText = "寸法線の「始点」をタップ";
     } else if (m === 'polyline') {
@@ -572,7 +578,10 @@
     }
     redraw();
   }
-  btnCalib.onclick = () => setMode('calib');
+  btnCalib.onclick = () => {
+    closeMemoPanel();
+    setMode('calib');
+  };
   btnPolyline.onclick = () => {
     if (!pixelsPerMeter) { alert("先に「① 縮尺設定」を行ってください"); return; }
     setMode('polyline');
@@ -675,7 +684,6 @@
   bindDpad('btnLeft',  1,  0);
   bindDpad('btnRight',-1,  0);
 
-  // UIコンテナ群のイベント貫通完全保護（メモ一覧・モーダル・十字キー・ズーム）
   const uiPanels = ['memoPanel', 'calibModal', 'memoSaveModal', 'dpadBox', 'zoomBox'];
   uiPanels.forEach(id => {
     const el = document.getElementById(id);
@@ -803,6 +811,7 @@
       if (calibPoints.length === 1) {
         statusMsg.innerText = "寸法線の「終点」をタップ";
       } else if (calibPoints.length === 2) {
+        closeMemoPanel(); // 数値入力モーダル表示時にも念のため閉じる
         statusMsg.innerText = "右上で数値を入力してください";
         calibModal.style.display = 'block';
         calibInput.focus();
@@ -1093,9 +1102,7 @@
   }
 
   btnSaveMemo.onclick = () => {
-    if (memoPanel.classList.contains('open')) {
-      memoPanel.classList.remove('open');
-    }
+    closeMemoPanel();
 
     if (currentMeters <= 0) {
       alert("まだ距離が計測されていません。計測を行ってから保存してください。");
@@ -1126,18 +1133,27 @@
   };
 
   btnToggleMemo.onclick = () => memoPanel.classList.toggle('open');
-  btnCloseMemo.onclick = () => memoPanel.classList.remove('open');
+  btnCloseMemo.onclick = () => closeMemoPanel();
 
+  // Excel等にそのまま貼り付け可能なTSV形式（タブ区切り）でコピー
   btnCopyMemo.onclick = () => {
     if (memoList.length === 0) return;
-    const text = memoList.map((m, i) => {
-      const d = (displayUnit === 'm') ? `${m.distance.toFixed(2)} m` : `${Math.round(m.distance * 1000).toLocaleString()} mm`;
-      return `${i + 1}. ${m.title}: ${d}`;
-    }).join('\n');
-    navigator.clipboard.writeText(text).then(() => {
-      alert("メモ一覧をコピーしました！");
+    
+    // ヘッダー行＋各データ行（タブ区切り: \t）
+    const header = ['No.', '項目名', '距離', '単位'].join('\t');
+    const rows = memoList.map((m, i) => {
+      const val = (displayUnit === 'm') 
+        ? m.distance.toFixed(2) 
+        : Math.round(m.distance * 1000).toString();
+      return [i + 1, m.title, val, displayUnit].join('\t');
+    });
+
+    const tsvText = [header, ...rows].join('\n');
+
+    navigator.clipboard.writeText(tsvText).then(() => {
+      alert("エクセル形式（タブ区切り）でクリップボードにコピーしました！\nExcelやスプレッドシートに直接貼り付けできます。");
     }).catch(() => {
-      alert(text);
+      alert(tsvText);
     });
   };
 
