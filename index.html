@@ -75,28 +75,40 @@
     .box-btns { display: flex; gap: 5px; }
     .box-btn { flex: 1; padding: 6px; border: none; border-radius: 5px; font-weight: bold; font-size: 11px; cursor: pointer; }
 
-    /* 一時メモ一覧パネル：幅を従来の半分（140px / 最大45%）に縮小 */
+    /* メモ一覧ウィンドウ：背景透過、幅コンパクト化 */
     #memoPanel {
-      position: absolute; top: 0; right: 0; bottom: 0; width: 140px; max-width: 45%;
-      background: rgba(30, 30, 30, 0.96); backdrop-filter: blur(8px); box-shadow: -4px 0 16px rgba(0,0,0,0.5);
-      z-index: 40; display: flex; flex-direction: column; transform: translateX(100%);
-      transition: transform 0.25s ease; color: white;
+      position: absolute; top: 0; right: 0; bottom: 0; width: 95px; max-width: 30%;
+      background: rgba(20, 20, 20, 0.65); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+      box-shadow: -2px 0 10px rgba(0,0,0,0.3); z-index: 40; display: flex; flex-direction: column;
+      transform: translateX(100%); transition: transform 0.25s ease; color: white;
     }
     #memoPanel.open { transform: translateX(0); }
     .memo-header {
-      padding: 6px 8px; background: #1a73e8; display: flex; align-items: center;
-      justify-content: space-between; font-weight: bold; font-size: 11px;
+      padding: 5px 6px; background: rgba(26, 115, 232, 0.85); display: flex; align-items: center;
+      justify-content: space-between; font-weight: bold; font-size: 10px;
     }
-    .memo-list { flex: 1; overflow-y: auto; padding: 5px; display: flex; flex-direction: column; gap: 5px; }
+    .memo-list { flex: 1; overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 4px; }
     .memo-item {
-      background: #383838; padding: 5px 6px; border-radius: 5px; border-left: 3px solid #4caf50;
+      background: rgba(50, 50, 50, 0.7); padding: 4px 5px; border-radius: 4px;
+      border-left: 3px solid #4caf50; display: flex; flex-direction: column; gap: 2px; position: relative;
+    }
+    .memo-item-title {
+      font-weight: bold; font-size: 9px; color: #fff; word-break: break-all;
+      background: rgba(255,255,255,0.08); border-radius: 2px; padding: 1px 3px; outline: none;
+      -webkit-user-select: text; user-select: text;
+    }
+    .memo-item-title:focus {
+      background: rgba(255,255,255,0.25); border: 1px solid #ffd54f;
+    }
+    .memo-item-dist-del {
       display: flex; justify-content: space-between; align-items: center;
     }
-    .memo-item-title { font-weight: bold; font-size: 10px; word-break: break-all; }
-    .memo-item-dist { color: #ffd54f; font-weight: bold; font-size: 11px; }
-    .memo-item-del { background: none; border: none; color: #ff5252; font-size: 13px; cursor: pointer; padding: 0 4px; }
-    .memo-footer { padding: 5px; background: #222; display: flex; flex-direction: column; gap: 4px; }
-    .memo-footer .btn { font-size: 10px; padding: 4px 6px; }
+    .memo-item-dist { color: #ffd54f; font-weight: bold; font-size: 10px; }
+    .memo-item-del {
+      background: none; border: none; color: #ff5252; font-size: 12px; cursor: pointer; padding: 0 2px; line-height: 1;
+    }
+    .memo-footer { padding: 4px; background: rgba(15, 15, 15, 0.8); display: flex; flex-direction: column; gap: 3px; }
+    .memo-footer .btn { font-size: 9px; padding: 3px 4px; border-radius: 3px; }
 
     .dpad-container {
       position: absolute; left: 12px; bottom: 12px; width: 110px; height: 110px;
@@ -132,8 +144,7 @@
 <body>
 
 <header>
-  <!-- バージョン表記 ver0.4 -->
-  <div class="app-title-ver">H M-r ver0.4</div>
+  <div class="app-title-ver">H M-r ver0.5</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -148,7 +159,7 @@
   <button id="btnPolyline" class="btn">② 角タップ</button>
   <button id="btnMeasure" class="btn">③ なぞる</button>
   <button id="btnUndo" class="btn" style="background:#ff9800;color:#fff;">1つ戻る</button>
-  <button id="btnSaveMemo" class="btn btn-memo">📝 保存</button>
+  <button id="btnSaveMemo" class="btn btn-memo">📝 メモ</button>
   <button id="btnToggleMemo" class="btn" style="background:#5c6bc0;color:#fff;">📋 (<span id="memoCount">0</span>)</button>
   <button id="btnClear" class="btn" style="background:#ff5252;color:#fff;">消去</button>
 </header>
@@ -176,22 +187,22 @@
   </div>
 
   <div id="memoSaveModal" class="floating-box">
-    <h4>📝 メモ保存</h4>
+    <h4>📝 メモ記録</h4>
     <p id="memoSavePrompt">距離: --</p>
     <input type="text" id="memoNameInput" class="box-input" placeholder="例: キッチン〜浴室">
     <div class="box-btns">
       <button class="box-btn" id="btnCancelSaveMemo" style="background:#ddd;">取消</button>
-      <button class="box-btn" id="btnOkSaveMemo" style="background:#4caf50;color:#fff;">保存</button>
+      <button class="box-btn" id="btnOkSaveMemo" style="background:#4caf50;color:#fff;">メモ</button>
     </div>
   </div>
 
   <div id="memoPanel">
     <div class="memo-header">
       <span>メモ一覧</span>
-      <button id="btnCloseMemo" style="background:none;border:none;color:white;font-size:14px;cursor:pointer;">✕</button>
+      <button id="btnCloseMemo" style="background:none;border:none;color:white;font-size:12px;cursor:pointer;">✕</button>
     </div>
     <div class="memo-list" id="memoListContainer">
-      <div style="text-align:center;color:#888;margin-top:20px;font-size:10px;">メモなし</div>
+      <div style="text-align:center;color:#aaa;margin-top:15px;font-size:9px;">メモなし</div>
     </div>
     <div class="memo-footer">
       <button id="btnCopyMemo" class="btn">全コピー</button>
@@ -253,7 +264,24 @@
   let imgLoaded = false;
   let currentMeters = 0;
 
+  // キャッシュからメモを復元
+  const STORAGE_KEY = 'kebleplan_memo_cache';
   let memoList = [];
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      memoList = JSON.parse(saved);
+    }
+  } catch (e) {
+    memoList = [];
+  }
+
+  function saveMemoToStorage() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(memoList));
+    } catch (e) {}
+  }
+
   let pdfDoc = null;
   let currentPdfPage = 1;
 
@@ -733,6 +761,7 @@
     ctx.stroke();
   }
 
+  // --- タッチ & マウス入力判定 ---
   let isPinching = false;
   let pinchStartDist = 0;
   let pinchStartScale = 1.0;
@@ -991,10 +1020,13 @@
     setMode('calib');
   };
 
+  // メモ表示更新（キャッシュ保存対応）
   function updateMemoView() {
     memoCount.innerText = memoList.length;
+    saveMemoToStorage(); // キャッシュ保存
+
     if (memoList.length === 0) {
-      memoListContainer.innerHTML = '<div style="text-align:center;color:#888;margin-top:20px;font-size:10px;">メモなし</div>';
+      memoListContainer.innerHTML = '<div style="text-align:center;color:#aaa;margin-top:15px;font-size:9px;">メモなし</div>';
       return;
     }
     memoListContainer.innerHTML = '';
@@ -1002,17 +1034,37 @@
       const div = document.createElement('div');
       div.className = 'memo-item';
       const distStr = (displayUnit === 'm')
-        ? `${item.distance.toFixed(2)} m`
-        : `${Math.round(item.distance * 1000).toLocaleString()} mm`;
+        ? `${item.distance.toFixed(2)}m`
+        : `${Math.round(item.distance * 1000).toLocaleString()}mm`;
 
       div.innerHTML = `
-        <div style="min-width:0;flex:1;">
-          <div class="memo-item-title">${item.title}</div>
-          <div class="memo-item-dist">${distStr}</div>
+        <div class="memo-item-title" contenteditable="true" data-index="${index}" title="タップして名前を編集">${item.title}</div>
+        <div class="memo-item-dist-del">
+          <span class="memo-item-dist">${distStr}</span>
+          <button class="memo-item-del" data-index="${index}">✕</button>
         </div>
-        <button class="memo-item-del" data-index="${index}">✕</button>
       `;
       memoListContainer.appendChild(div);
+    });
+
+    // タイトルのインライン編集保存
+    document.querySelectorAll('.memo-item-title').forEach(el => {
+      el.onblur = (e) => {
+        const idx = parseInt(e.target.getAttribute('data-index'), 10);
+        const newTitle = e.target.innerText.trim();
+        if (newTitle) {
+          memoList[idx].title = newTitle;
+        } else {
+          e.target.innerText = memoList[idx].title;
+        }
+        saveMemoToStorage();
+      };
+      el.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.target.blur();
+        }
+      };
     });
 
     document.querySelectorAll('.memo-item-del').forEach(btn => {
@@ -1037,13 +1089,13 @@
       ? `${currentMeters.toFixed(2)} m`
       : `${Math.round(currentMeters * 1000).toLocaleString()} mm`;
     memoSavePrompt.innerText = `距離: ${distStr}`;
-    memoNameInput.value = `ルート ${memoList.length + 1}`;
+    memoNameInput.value = `ルート${memoList.length + 1}`;
     memoSaveModal.style.display = 'block';
     memoNameInput.focus();
   };
 
   btnOkSaveMemo.onclick = () => {
-    const title = memoNameInput.value.trim() || `ルート ${memoList.length + 1}`;
+    const title = memoNameInput.value.trim() || `ルート${memoList.length + 1}`;
     memoList.push({
       title: title,
       distance: currentMeters
@@ -1073,15 +1125,20 @@
     });
   };
 
+  // 全削除ボタン：キャッシュも完全に消去
   btnClearAllMemo.onclick = () => {
     if (memoList.length === 0) return;
-    memoList = [];
-    updateMemoView();
+    if (confirm("メモをすべて削除しますか？")) {
+      memoList = [];
+      localStorage.removeItem(STORAGE_KEY);
+      updateMemoView();
+    }
   };
 
   window.addEventListener('load', () => {
     resizeCanvas();
     loadSamplePlan();
+    updateMemoView(); // 保存済みキャッシュの初期描画
   });
 </script>
 </body>
