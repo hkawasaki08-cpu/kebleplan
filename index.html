@@ -28,6 +28,7 @@
     }
     .btn.active { background: #ffeb3b; color: #000; }
     .btn-memo { background: #4caf50; color: white; }
+    .btn-sample { background: #e3f2fd; color: #0d47a1; }
     .page-ctrls {
       display: none; align-items: center; gap: 3px; background: rgba(0,0,0,0.25);
       padding: 2px 5px; border-radius: 4px; font-size: 11px; font-weight: bold;
@@ -125,9 +126,11 @@
 <body>
 
 <header>
-  <div class="app-title-ver">H M-r ver0.1</div>
+  <!-- バージョン表記を ver0.2 に更新 -->
+  <div class="app-title-ver">H M-r ver0.2</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
+  <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
   
   <div class="page-ctrls" id="pdfControls">
     <button class="page-btn" id="btnPrevPage">◀</button>
@@ -291,7 +294,7 @@
 
   function resetView() {
     if (!imgLoaded || !currentDocSource) return;
-    const pad = 15;
+    const pad = 20;
     const w = currentDocSource.width;
     const h = currentDocSource.height;
     scale = Math.min((canvas.width - pad*2) / w, (canvas.height - pad*2) / h);
@@ -299,6 +302,111 @@
     offsetY = (canvas.height - h * scale) / 2;
     redraw();
   }
+
+  function generateSampleFloorPlan() {
+    const sCanvas = document.createElement('canvas');
+    sCanvas.width = 1000;
+    sCanvas.height = 750;
+    const sCtx = sCanvas.getContext('2d');
+
+    sCtx.fillStyle = '#fdfdfd';
+    sCtx.fillRect(0, 0, 1000, 750);
+
+    sCtx.strokeStyle = '#e0e0e0';
+    sCtx.lineWidth = 1;
+    for (let x = 0; x <= 1000; x += 50) {
+      sCtx.beginPath(); sCtx.moveTo(x, 0); sCtx.lineTo(x, 750); sCtx.stroke();
+    }
+    for (let y = 0; y <= 750; y += 50) {
+      sCtx.beginPath(); sCtx.moveTo(0, y); sCtx.lineTo(1000, y); sCtx.stroke();
+    }
+
+    sCtx.strokeStyle = '#333333';
+    sCtx.lineWidth = 4;
+    sCtx.strokeRect(100, 150, 700, 480);
+    sCtx.strokeRect(100, 150, 420, 320);
+    sCtx.strokeRect(520, 150, 280, 240);
+    sCtx.strokeRect(520, 390, 280, 240);
+    sCtx.strokeRect(100, 470, 220, 160);
+
+    sCtx.fillStyle = '#222';
+    sCtx.font = 'bold 22px sans-serif';
+    sCtx.textAlign = 'center';
+    sCtx.textBaseline = 'middle';
+    sCtx.fillText('LDK (16帖)', 310, 300);
+    sCtx.fillText('洋室 (6帖)', 660, 270);
+    sCtx.fillText('浴室 / 洗面', 660, 510);
+    sCtx.fillText('玄関', 210, 550);
+    sCtx.fillText('廊下', 420, 550);
+
+    sCtx.strokeStyle = '#2196f3';
+    sCtx.lineWidth = 2;
+    sCtx.beginPath(); sCtx.arc(380, 470, 45, 0, Math.PI * 0.5); sCtx.stroke();
+    sCtx.beginPath(); sCtx.arc(560, 390, 40, Math.PI, Math.PI * 1.5); sCtx.stroke();
+
+    const dimY = 100;
+    const xStart = 100;
+    const xEnd = 300;
+
+    sCtx.strokeStyle = '#d32f2f';
+    sCtx.lineWidth = 3;
+    sCtx.beginPath();
+    sCtx.moveTo(xStart, dimY);
+    sCtx.lineTo(xEnd, dimY);
+    sCtx.stroke();
+
+    sCtx.fillStyle = '#d32f2f';
+    [xStart, xEnd].forEach(x => {
+      sCtx.beginPath();
+      sCtx.arc(x, dimY, 6, 0, Math.PI * 2);
+      sCtx.fill();
+      sCtx.beginPath();
+      sCtx.moveTo(x, dimY - 15);
+      sCtx.lineTo(x, dimY + 15);
+      sCtx.stroke();
+    });
+
+    sCtx.font = 'bold 18px sans-serif';
+    sCtx.fillText('基準寸法: 1820 mm (赤線の両端をタップ)', 200, dimY - 24);
+
+    const dimX2 = 500;
+    sCtx.strokeStyle = '#757575';
+    sCtx.lineWidth = 2;
+    sCtx.beginPath();
+    sCtx.moveTo(xStart, dimY + 30);
+    sCtx.lineTo(dimX2, dimY + 30);
+    sCtx.stroke();
+    sCtx.fillStyle = '#757575';
+    sCtx.font = 'bold 14px sans-serif';
+    sCtx.fillText('3640 mm', 300, dimY + 20);
+
+    sCtx.fillStyle = '#1a73e8';
+    sCtx.font = 'bold 24px sans-serif';
+    sCtx.textAlign = 'left';
+    sCtx.fillText('【テスト用サンプル間取り図】', 100, 50);
+
+    return sCanvas;
+  }
+
+  function loadSamplePlan() {
+    pixelsPerMeter = null;
+    calibPoints = [];
+    polylinePoints = [];
+    currentStroke = [];
+    completedStrokes = [];
+    currentMeters = 0;
+    updateDistanceDisplay();
+    pdfControls.style.display = 'none';
+
+    currentDocSource = generateSampleFloorPlan();
+    imgLoaded = true;
+    resizeCanvas();
+    resetView();
+    setMode('calib');
+    statusMsg.innerText = "赤線の両端（1820mm）をタップして縮尺設定を行ってください";
+  }
+
+  document.getElementById('btnLoadSample').onclick = loadSamplePlan;
 
   document.getElementById('btnLoad').onclick = () => {
     document.getElementById('fileInput').click();
@@ -485,7 +593,6 @@
   document.getElementById('btnZoomOut').onclick = () => zoomAt(0.75);
   document.getElementById('btnReset').onclick = resetView;
 
-  // 十字キー
   let panTimer = null;
   function bindDpad(btnId, dx, dy) {
     const btn = document.getElementById(btnId);
@@ -596,14 +703,12 @@
     ctx.stroke();
   }
 
-  // --- タッチ & マウス入力判定（2本指誤判定防止ガード付き） ---
   let isPinching = false;
   let pinchStartDist = 0;
   let pinchStartScale = 1.0;
   let pinchStartCenter = { x: 0, y: 0 };
   let pinchStartOffset = { x: 0, y: 0 };
 
-  // 誤タップ防止用ステート
   let pendingTapTimer = null;
   let lastPinchEndTime = 0;
   let touchStartPos = { x: 0, y: 0 };
@@ -615,6 +720,7 @@
     const ip = toImgCoords(clientX - rect.left, clientY - rect.top);
 
     if (mode === 'calib') {
+      if (calibPoints.length >= 2 || calibModal.style.display === 'block') return;
       calibPoints.push(ip);
       redraw();
       if (calibPoints.length === 1) {
@@ -677,12 +783,10 @@
     redraw();
   }
 
-  // タッチイベント処理
   canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const now = Date.now();
 
-    // ピンチ終了直後（250ms以内）はタップ操作を完全ブロック
     if (now - lastPinchEndTime < 250) {
       clearTimeout(pendingTapTimer);
       pendingTapTimer = null;
@@ -690,7 +794,6 @@
     }
 
     if (e.touches.length >= 2) {
-      // 2本指操作（ピンチ・パン）開始：保留中のタップ・なぞりを完全破棄
       clearTimeout(pendingTapTimer);
       pendingTapTimer = null;
       isFreehandDrawing = false;
@@ -718,14 +821,11 @@
       clearTimeout(pendingTapTimer);
 
       if (mode === 'measure') {
-        // なぞりモード：わずかなディレイ（60ms）で2本指スクロール開始かを判定
         pendingTapTimer = setTimeout(() => {
           if (!isPinching && !isTouchMoved) {
             startFreehand(t.clientX, t.clientY);
           }
         }, 60);
-      } else {
-        // 縮尺・角タップモード：タップ判定を指上げ（touchend）まで保留
       }
     }
   }, { passive: false });
@@ -773,14 +873,13 @@
     if (isPinching) {
       if (e.touches.length < 2) {
         isPinching = false;
-        lastPinchEndTime = now; // ピンチ解除時刻を記録
+        lastPinchEndTime = now;
       }
       return;
     }
 
     clearTimeout(pendingTapTimer);
 
-    // ピンチ直後でなく、かつ指が大きく動いていない場合のみタップ処理を実行
     if (now - lastPinchEndTime >= 250 && !isTouchMoved) {
       if (mode === 'calib' || mode === 'polyline') {
         triggerTapAction(touchStartPos.x, touchStartPos.y);
@@ -792,7 +891,6 @@
     }
   });
 
-  // PC マウス操作
   let isMouseRightDown = false;
   let lastMouse = { x: 0, y: 0 };
   let isMouseMoved = false;
@@ -842,7 +940,6 @@
     zoomAt(factor, e.clientX - rect.left, e.clientY - rect.top);
   }, { passive: false });
 
-  // 縮尺決定
   document.getElementById('btnOkCalib').onclick = () => {
     const valMm = parseFloat(calibInput.value);
     if (!isNaN(valMm) && valMm > 0 && calibPoints.length === 2) {
@@ -862,7 +959,6 @@
     setMode('calib');
   };
 
-  // メモ機能
   function updateMemoView() {
     memoCount.innerText = memoList.length;
     if (memoList.length === 0) {
@@ -897,6 +993,10 @@
   }
 
   btnSaveMemo.onclick = () => {
+    if (memoPanel.classList.contains('open')) {
+      memoPanel.classList.remove('open');
+    }
+
     if (currentMeters <= 0) {
       alert("まだ距離が計測されていません。計測を行ってから保存してください。");
       return;
@@ -947,7 +1047,10 @@
     updateMemoView();
   };
 
-  resizeCanvas();
+  window.addEventListener('load', () => {
+    resizeCanvas();
+    loadSamplePlan();
+  });
 </script>
 </body>
 </html>
