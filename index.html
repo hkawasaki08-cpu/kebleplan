@@ -61,12 +61,11 @@
       overflow: hidden; text-overflow: ellipsis; z-index: 15;
     }
 
-    /* 縮尺設定・入力モーダル：背景透過（すりガラス効果） */
     .floating-box {
       display: none; position: absolute; top: 10px; right: 10px;
       background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
       color: #111; padding: 10px 12px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
-      border: 1px solid rgba(255, 255, 255, 0.4); z-index: 30; width: 210px; text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.4); z-index: 35; width: 210px; text-align: center;
     }
     .floating-box h4 { margin: 0 0 4px 0; font-size: 13px; color: #1a73e8; }
     .floating-box p { margin: 0 0 6px 0; font-size: 11px; color: #333; line-height: 1.2; }
@@ -84,6 +83,7 @@
       background: rgba(20, 20, 20, 0.65); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
       box-shadow: -2px 0 10px rgba(0,0,0,0.3); z-index: 40; display: flex; flex-direction: column;
       transform: translateX(100%); transition: transform 0.25s ease; color: white;
+      pointer-events: auto;
     }
     #memoPanel.open { transform: translateX(0); }
     .memo-header {
@@ -147,7 +147,8 @@
 <body>
 
 <header>
-  <div class="app-title-ver">H M-r ver0.5</div>
+  <!-- バージョン表記 ver0.6 -->
+  <div class="app-title-ver">H M-r ver0.6</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -674,10 +675,25 @@
   bindDpad('btnLeft',  1,  0);
   bindDpad('btnRight',-1,  0);
 
-  ['dpadBox', 'zoomBox'].forEach(id => {
+  // UIコンテナ群のイベント貫通完全保護（メモ一覧・モーダル・十字キー・ズーム）
+  const uiPanels = ['memoPanel', 'calibModal', 'memoSaveModal', 'dpadBox', 'zoomBox'];
+  uiPanels.forEach(id => {
     const el = document.getElementById(id);
-    el.addEventListener('touchstart', (e) => { e.stopPropagation(); }, { passive: true });
-    el.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+    if (!el) return;
+    const stopBubble = (e) => {
+      e.stopPropagation();
+      isInteractingUI = true;
+    };
+    const resetInteracting = (e) => {
+      e.stopPropagation();
+      setTimeout(() => { isInteractingUI = false; }, 200);
+    };
+    el.addEventListener('touchstart', stopBubble, { passive: false });
+    el.addEventListener('touchmove', stopBubble, { passive: false });
+    el.addEventListener('touchend', resetInteracting, { passive: false });
+    el.addEventListener('mousedown', stopBubble);
+    el.addEventListener('mousemove', stopBubble);
+    el.addEventListener('mouseup', resetInteracting);
   });
 
   function toImgCoords(screenX, screenY) {
@@ -812,7 +828,7 @@
   }
 
   function handleMoveAt(clientX, clientY) {
-    if (!isFreehandDrawing || mode !== 'measure' || !imgLoaded) return;
+    if (!isFreehandDrawing || mode !== 'measure' || !imgLoaded || isInteractingUI) return;
     const rect = canvas.getBoundingClientRect();
     const rawPos = toImgCoords(clientX - rect.left, clientY - rect.top);
     const last = currentStroke[currentStroke.length - 1];
