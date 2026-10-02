@@ -99,11 +99,13 @@
     .dpad-container {
       position: absolute; left: 12px; bottom: 12px; width: 110px; height: 110px;
       display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr;
-      gap: 3px; z-index: 15; background: rgba(0,0,0,0.35); padding: 4px; border-radius: 14px;
+      gap: 3px; z-index: 30; background: rgba(0,0,0,0.35); padding: 4px; border-radius: 14px;
+      pointer-events: auto;
     }
     .d-btn {
       background: rgba(255, 255, 255, 0.9); color: #222; border: none; border-radius: 6px;
       font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; cursor: pointer;
+      pointer-events: auto;
     }
     .d-btn:active { background: #ffd54f; }
     #btnUp    { grid-column: 2; grid-row: 1; }
@@ -113,12 +115,14 @@
     #btnDown  { grid-column: 2; grid-row: 3; }
 
     .zoom-ctrls {
-      position: absolute; right: 12px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 15;
+      position: absolute; right: 12px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 30;
+      pointer-events: auto;
     }
     .z-btn {
       width: 44px; height: 44px; border-radius: 22px; background: rgba(255,255,255,0.92);
       color: #222; border: none; box-shadow: 0 3px 6px rgba(0,0,0,0.35); font-size: 22px;
       font-weight: bold; display: flex; align-items: center; justify-content: center; cursor: pointer;
+      pointer-events: auto;
     }
     .z-btn:active { background: #ffd54f; }
   </style>
@@ -126,8 +130,8 @@
 <body>
 
 <header>
-  <!-- バージョン表記を ver0.2 に更新 -->
-  <div class="app-title-ver">H M-r ver0.2</div>
+  <!-- バージョン表記 ver0.3 -->
+  <div class="app-title-ver">H M-r ver0.3</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -193,7 +197,7 @@
     </div>
   </div>
 
-  <div class="dpad-container">
+  <div class="dpad-container" id="dpadBox">
     <button class="d-btn" id="btnUp">▲</button>
     <button class="d-btn" id="btnLeft">◀</button>
     <button class="d-btn" id="btnReset">全体</button>
@@ -201,7 +205,7 @@
     <button class="d-btn" id="btnDown">▼</button>
   </div>
 
-  <div class="zoom-ctrls">
+  <div class="zoom-ctrls" id="zoomBox">
     <button class="z-btn" id="btnZoomIn">＋</button>
     <button class="z-btn" id="btnZoomOut">ー</button>
   </div>
@@ -261,6 +265,9 @@
   let isFreehandDrawing = false;
   let currentStroke = [];
   let completedStrokes = [];
+
+  // UI操作時のキャンバス誤タップ防止用フラグ
+  let isInteractingUI = false;
 
   function updateDistanceDisplay() {
     if (currentMeters <= 0) {
@@ -589,10 +596,25 @@
     scale = newScale;
     redraw();
   }
-  document.getElementById('btnZoomIn').onclick = () => zoomAt(1.35);
-  document.getElementById('btnZoomOut').onclick = () => zoomAt(0.75);
-  document.getElementById('btnReset').onclick = resetView;
 
+  // 操作ボタン（ズーム・リセット）のイベント伝播防止
+  function bindSafeClick(btn, action) {
+    const handleAction = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      isInteractingUI = true;
+      action();
+      setTimeout(() => { isInteractingUI = false; }, 200);
+    };
+    btn.addEventListener('touchstart', handleAction, { passive: false });
+    btn.addEventListener('mousedown', handleAction);
+  }
+
+  bindSafeClick(document.getElementById('btnZoomIn'), () => zoomAt(1.35));
+  bindSafeClick(document.getElementById('btnZoomOut'), () => zoomAt(0.75));
+  bindSafeClick(document.getElementById('btnReset'), resetView);
+
+  // 十字キーの安全バインド（操作時の誤タップ完全ブロック）
   let panTimer = null;
   function bindDpad(btnId, dx, dy) {
     const btn = document.getElementById(btnId);
@@ -601,13 +623,16 @@
     const start = (e) => {
       e.preventDefault();
       e.stopPropagation();
+      isInteractingUI = true;
       move();
       clearInterval(panTimer);
       panTimer = setInterval(() => { offsetX += dx * 25; offsetY += dy * 25; redraw(); }, 60);
     };
     const stop = (e) => {
       e.preventDefault();
+      e.stopPropagation();
       clearInterval(panTimer);
+      setTimeout(() => { isInteractingUI = false; }, 200);
     };
     btn.addEventListener('touchstart', start, { passive: false });
     btn.addEventListener('touchend', stop);
@@ -619,6 +644,13 @@
   bindDpad('btnDown',  0, -1);
   bindDpad('btnLeft',  1,  0);
   bindDpad('btnRight',-1,  0);
+
+  // コンテナ自体のタッチがキャンバスに抜けないよう保護
+  ['dpadBox', 'zoomBox'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', (e) => { e.stopPropagation(); }, { passive: true });
+    el.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+  });
 
   function toImgCoords(screenX, screenY) {
     return {
@@ -703,6 +735,7 @@
     ctx.stroke();
   }
 
+  // --- タッチ & マウス入力判定 ---
   let isPinching = false;
   let pinchStartDist = 0;
   let pinchStartScale = 1.0;
@@ -715,7 +748,7 @@
   let isTouchMoved = false;
 
   function triggerTapAction(clientX, clientY) {
-    if (!imgLoaded) return;
+    if (!imgLoaded || isInteractingUI) return;
     const rect = canvas.getBoundingClientRect();
     const ip = toImgCoords(clientX - rect.left, clientY - rect.top);
 
@@ -742,7 +775,7 @@
   }
 
   function startFreehand(clientX, clientY) {
-    if (!imgLoaded || mode !== 'measure') return;
+    if (!imgLoaded || mode !== 'measure' || isInteractingUI) return;
     const rect = canvas.getBoundingClientRect();
     const ip = toImgCoords(clientX - rect.left, clientY - rect.top);
     isFreehandDrawing = true;
@@ -785,6 +818,7 @@
 
   canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
+    if (isInteractingUI) return;
     const now = Date.now();
 
     if (now - lastPinchEndTime < 250) {
@@ -822,7 +856,7 @@
 
       if (mode === 'measure') {
         pendingTapTimer = setTimeout(() => {
-          if (!isPinching && !isTouchMoved) {
+          if (!isPinching && !isTouchMoved && !isInteractingUI) {
             startFreehand(t.clientX, t.clientY);
           }
         }, 60);
@@ -856,7 +890,7 @@
       return;
     }
 
-    if (e.touches.length === 1) {
+    if (e.touches.length === 1 && !isInteractingUI) {
       const t = e.touches[0];
       const moveDist = Math.hypot(t.clientX - touchStartPos.x, t.clientY - touchStartPos.y);
       if (moveDist > 6) {
@@ -880,7 +914,7 @@
 
     clearTimeout(pendingTapTimer);
 
-    if (now - lastPinchEndTime >= 250 && !isTouchMoved) {
+    if (now - lastPinchEndTime >= 250 && !isTouchMoved && !isInteractingUI) {
       if (mode === 'calib' || mode === 'polyline') {
         triggerTapAction(touchStartPos.x, touchStartPos.y);
       }
@@ -891,11 +925,13 @@
     }
   });
 
+  // PC マウス
   let isMouseRightDown = false;
   let lastMouse = { x: 0, y: 0 };
   let isMouseMoved = false;
 
   canvas.addEventListener('mousedown', (e) => {
+    if (isInteractingUI) return;
     if (e.button === 0) {
       touchStartPos = { x: e.clientX, y: e.clientY };
       isMouseMoved = false;
@@ -914,7 +950,7 @@
       offsetY += e.clientY - lastMouse.y;
       lastMouse = { x: e.clientX, y: e.clientY };
       redraw();
-    } else {
+    } else if (!isInteractingUI) {
       if (Math.hypot(e.clientX - touchStartPos.x, e.clientY - touchStartPos.y) > 4) {
         isMouseMoved = true;
       }
@@ -923,7 +959,7 @@
   });
 
   window.addEventListener('mouseup', (e) => {
-    if (e.button === 0) {
+    if (e.button === 0 && !isInteractingUI) {
       if (!isMouseMoved && (mode === 'calib' || mode === 'polyline')) {
         triggerTapAction(e.clientX, e.clientY);
       }
