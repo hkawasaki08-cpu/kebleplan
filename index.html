@@ -146,7 +146,7 @@
 </head>
 <body>
 
-<header>
+<header id="appHeader">
   <div class="app-title-ver">H M-r ver0.6</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
@@ -564,7 +564,7 @@
     btnMeasure.className = 'btn' + (m === 'measure' ? ' active' : '');
 
     if (m === 'calib') {
-      closeMemoPanel(); // 縮尺設定に入った際にメモウィンドウを自動クローズ
+      closeMemoPanel();
       calibPoints = [];
       statusMsg.innerText = "寸法線の「始点」をタップ";
     } else if (m === 'polyline') {
@@ -591,33 +591,64 @@
     setMode('measure');
   };
 
-  document.getElementById('btnUndo').onclick = () => {
-    if (mode === 'polyline' && polylinePoints.length > 0) {
-      polylinePoints.pop();
-      redraw();
-      if (pixelsPerMeter) {
-        if (polylinePoints.length < 2) {
-          currentMeters = 0;
-        } else {
-          const px = calculateLength(polylinePoints);
-          currentMeters = px / pixelsPerMeter;
-        }
-        updateDistanceDisplay();
+  // --- 「1つ戻る」処理の完全修正 ---
+  function undoLastAction() {
+    if (mode === 'calib') {
+      if (calibModal.style.display === 'block') {
+        calibModal.style.display = 'none';
       }
-    } else if (mode === 'measure' && completedStrokes.length > 0) {
-      completedStrokes.pop();
-      redraw();
-      if (pixelsPerMeter) {
-        if (completedStrokes.length === 0) {
-          currentMeters = 0;
+      if (calibPoints.length > 0) {
+        calibPoints.pop();
+        redraw();
+        if (calibPoints.length === 1) {
+          statusMsg.innerText = "寸法線の「終点」をタップ";
         } else {
-          const last = completedStrokes[completedStrokes.length - 1];
-          currentMeters = calculateLength(last) / pixelsPerMeter;
+          statusMsg.innerText = "寸法線の「始点」をタップ";
         }
-        updateDistanceDisplay();
+      }
+    } else if (mode === 'polyline') {
+      if (polylinePoints.length > 0) {
+        polylinePoints.pop();
+        redraw();
+        if (pixelsPerMeter) {
+          if (polylinePoints.length < 2) {
+            currentMeters = 0;
+          } else {
+            const px = calculateLength(polylinePoints);
+            currentMeters = px / pixelsPerMeter;
+          }
+          updateDistanceDisplay();
+        }
+        if (polylinePoints.length === 0) {
+          statusMsg.innerText = "【角タップ】曲がり角をタップして動線を計測";
+        }
+      }
+    } else if (mode === 'measure') {
+      if (completedStrokes.length > 0) {
+        completedStrokes.pop();
+        redraw();
+        if (pixelsPerMeter) {
+          let totalPx = 0;
+          completedStrokes.forEach(s => {
+            totalPx += calculateLength(s);
+          });
+          currentMeters = totalPx / pixelsPerMeter;
+          updateDistanceDisplay();
+        }
       }
     }
+  }
+
+  const btnUndo = document.getElementById('btnUndo');
+  const handleUndoTap = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isInteractingUI = true;
+    undoLastAction();
+    setTimeout(() => { isInteractingUI = false; }, 200);
   };
+  btnUndo.addEventListener('touchstart', handleUndoTap, { passive: false });
+  btnUndo.addEventListener('click', handleUndoTap);
 
   document.getElementById('btnClear').onclick = () => {
     polylinePoints = [];
@@ -684,7 +715,8 @@
   bindDpad('btnLeft',  1,  0);
   bindDpad('btnRight',-1,  0);
 
-  const uiPanels = ['memoPanel', 'calibModal', 'memoSaveModal', 'dpadBox', 'zoomBox'];
+  // ヘッダーおよび全UIパネルの背面貫通防止
+  const uiPanels = ['appHeader', 'memoPanel', 'calibModal', 'memoSaveModal', 'dpadBox', 'zoomBox'];
   uiPanels.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -811,7 +843,7 @@
       if (calibPoints.length === 1) {
         statusMsg.innerText = "寸法線の「終点」をタップ";
       } else if (calibPoints.length === 2) {
-        closeMemoPanel(); // 数値入力モーダル表示時にも念のため閉じる
+        closeMemoPanel();
         statusMsg.innerText = "右上で数値を入力してください";
         calibModal.style.display = 'block';
         calibInput.focus();
@@ -852,8 +884,9 @@
       redraw();
 
       if (pixelsPerMeter) {
-        const px = calculateLength(currentStroke);
-        currentMeters = px / pixelsPerMeter;
+        let totalPx = calculateLength(currentStroke);
+        completedStrokes.forEach(s => { totalPx += calculateLength(s); });
+        currentMeters = totalPx / pixelsPerMeter;
         updateDistanceDisplay();
       }
     }
@@ -866,6 +899,12 @@
       completedStrokes.push([...currentStroke]);
     }
     currentStroke = [];
+    if (pixelsPerMeter) {
+      let totalPx = 0;
+      completedStrokes.forEach(s => { totalPx += calculateLength(s); });
+      currentMeters = totalPx / pixelsPerMeter;
+      updateDistanceDisplay();
+    }
     redraw();
   }
 
@@ -1135,11 +1174,9 @@
   btnToggleMemo.onclick = () => memoPanel.classList.toggle('open');
   btnCloseMemo.onclick = () => closeMemoPanel();
 
-  // Excel等にそのまま貼り付け可能なTSV形式（タブ区切り）でコピー
   btnCopyMemo.onclick = () => {
     if (memoList.length === 0) return;
     
-    // ヘッダー行＋各データ行（タブ区切り: \t）
     const header = ['No.', '項目名', '距離', '単位'].join('\t');
     const rows = memoList.map((m, i) => {
       const val = (displayUnit === 'm') 
