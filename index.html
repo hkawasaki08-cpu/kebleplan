@@ -149,7 +149,7 @@
 <body>
 
 <header id="appHeader">
-  <div class="app-title-ver">H M-r ver0.97</div>
+  <div class="app-title-ver">H M-r ver0.98</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -183,8 +183,8 @@
 
   <div id="calibModal" class="floating-box">
     <h4>長さ入力 (mm)</h4>
-    <p id="calibNote">図面の数値を入力 (例: 1820)</p>
-    <input type="number" id="calibInput" class="box-input" step="1" value="1820">
+    <p id="calibNote">図面の数値を入力 (例: 12300)</p>
+    <input type="number" id="calibInput" class="box-input" step="1" value="12300">
     <div class="box-btns">
       <button class="box-btn" id="btnCancelCalib" style="background:#ddd;">取消</button>
       <button class="box-btn" id="btnOkCalib" style="background:#1a73e8;color:#fff;">決定</button>
@@ -194,7 +194,7 @@
   <div id="memoSaveModal" class="floating-box">
     <h4>📝 メモ記録</h4>
     <p id="memoSavePrompt">距離: --</p>
-    <input type="text" id="memoNameInput" class="box-input" placeholder="例: キッチン〜浴室">
+    <input type="text" id="memoNameInput" class="box-input" placeholder="例: 主動線A">
     <div class="box-btns">
       <button class="box-btn" id="btnCancelSaveMemo" style="background:#ddd;">取消</button>
       <button class="box-btn" id="btnOkSaveMemo" style="background:#4caf50;color:#fff;">メモ</button>
@@ -270,7 +270,6 @@
   let imgLoaded = false;
   let currentMeters = 0;
 
-  // --- IndexedDB ストレージ管理 ---
   const DB_NAME = 'KeblePlanDrawingDB_v5';
   const STORE_NAME = 'app_state';
 
@@ -350,7 +349,6 @@
   let calibBoxStart = null;
   let calibBoxCurrent = null;
 
-  // Tesseract シングルトン管理（メモリ枯渇防止）
   let tesseractWorker = null;
   async function getOCRWorker() {
     if (!tesseractWorker && window.Tesseract) {
@@ -368,7 +366,6 @@
     return tesseractWorker;
   }
 
-  // 再利用スクラッチCanvas
   let scratchCanvas = null;
   let scratchCtx = null;
   function getScratchContext(w, h) {
@@ -400,14 +397,13 @@
     }
   }
 
-  function isDarkPixel(r, g, b, threshold = 230) { // 薄い線も拾えるように230
-    if (r > 130 && g < 105 && b < 105) return 2; // 赤マーカー
+  function isDarkPixel(r, g, b, threshold = 230) {
+    if (r > 130 && g < 105 && b < 105) return 2;
     const gray = (r * 299 + g * 587 + b * 114) / 1000;
-    if (gray < threshold) return 1; // 黒・薄いグレー線
+    if (gray < threshold) return 1;
     return 0;
   }
 
-  // --- タップ近傍スマートスナップ補正（半径縮小＆距離ペナルティ強化で下ズレ防止） ---
   function snapToNearestFeature(targetPoint, searchRadius = 14) {
     if (!currentDocSource) return targetPoint;
     const gx = targetPoint.x;
@@ -436,7 +432,6 @@
         if (pType === 2) {
           redSumX += x; redSumY += y; redCount++;
         } else if (pType === 1) {
-          // タップ中心に近い黒ピクセルほど重みを大きくする
           const dist = Math.hypot(x - centerX, y - centerY);
           const weight = Math.max(0, searchRadius - dist);
           weightSumX += x * weight;
@@ -446,12 +441,10 @@
       }
     }
 
-    // 1. 赤丸マーカー（⚫）の重心吸着
     if (redCount >= 5) {
       return { x: minX + Math.round(redSumX / redCount), y: minY + Math.round(redSumY / redCount) };
     }
 
-    // 2. 十字交点のピーク吸着
     let bestX = centerX, bestY = centerY, maxScore = -1;
     for (let y = 2; y < sh - 2; y++) {
       for (let x = 2; x < sw - 2; x++) {
@@ -466,7 +459,6 @@
           if (isDarkPixel(data[idxV], data[idxV + 1], data[idxV + 2], 230)) vLine++;
         }
         
-        // 距離ペナルティを大幅に強化して、すぐ近くの交点だけを拾う
         const distFromCenter = Math.hypot(x - centerX, y - centerY);
         const score = (hLine * vLine) - distFromCenter * 2.0;
 
@@ -482,7 +474,6 @@
       return { x: minX + bestX, y: minY + bestY };
     }
 
-    // 3. 距離の重み付け重心（離れた円などに引っ張られにくくする）
     if (totalWeight > 0) {
       return { x: minX + Math.round(weightSumX / totalWeight), y: minY + Math.round(weightSumY / totalWeight) };
     }
@@ -638,7 +629,7 @@
     resizeCanvas();
     resetView();
     setMode('calib');
-    statusMsg.innerText = "寸法値を囲むか、端点を直接タップしてください";
+    statusMsg.innerText = "寸法値を囲むか、端点付近をタップしてください";
   }
 
   document.getElementById('btnLoadSample').onclick = loadSamplePlan;
@@ -718,7 +709,6 @@
     try {
       const page = await pdfDoc.getPage(pageNumber);
       const unscaledViewport = page.getViewport({ scale: 1.0 });
-      // iOS Safari制限対策: 最大2200pxに抑えてメモリクラッシュ物理防止
       const maxDim = 2200;
       const fitScale = Math.min(1.8, maxDim / Math.max(unscaledViewport.width, unscaledViewport.height));
       const viewport = page.getViewport({ scale: fitScale });
@@ -1036,7 +1026,19 @@
     ctx.restore();
   }
 
-  // --- ドラッグ選択：寸法値のOCR読み取り専用（水平線探索はしない） ---
+  function drawPath(points, color, baseWidth = 4) {
+    if (points.length < 2) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = baseWidth / scale;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
+  }
+
+  // --- ドラッグ選択：寸法値のOCR読み取り専用 ---
   async function processCalibBoxSelection(p1, p2) {
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
@@ -1054,7 +1056,6 @@
       if (window.Tesseract) {
         const worker = await getOCRWorker();
         if (worker) {
-          // 軽量化のためスケールダウンしてOCRにかける
           const scaleDown = Math.min(1.0, 300 / rw);
           const ocrW = Math.round(rw * scaleDown);
           const ocrH = Math.round(rh * scaleDown);
@@ -1081,13 +1082,13 @@
       calibNote.innerText = `自動読取: ${detectedNumber} mm（変更可能）`;
       statusMsg.innerText = `寸法値: ${detectedNumber} mm を認識！寸法線の両端をタップしてください`;
     } else {
-      statusMsg.innerText = "数値を認識できませんでした。端点をタップしてください";
+      statusMsg.innerText = "数値を認識できませんでした。端点付近をタップしてください";
     }
 
     redraw();
   }
 
-  // --- タッチ & マウス入力判定（スマートスナップ連動） ---
+  // --- タッチ & マウス入力判定（ドラッグ枠判定の完全復旧） ---
   let pendingTapTimer = null;
   let lastPinchEndTime = 0;
   let touchStartPos = { x: 0, y: 0 };
@@ -1112,9 +1113,8 @@
         closeMemoPanel();
         statusMsg.innerText = "点2吸着完了！長さを入力してください";
         
-        // すでにOCRで読み取られていなければサジェスト
         const currentVal = calibInput.value;
-        if (!currentVal || currentVal === "1820") {
+        if (!currentVal || currentVal === "1820" || currentVal === "12300") {
           const pxDist = dist(calibPoints[0], calibPoints[1]);
           if (Math.abs(pxDist - 200) < 40) calibInput.value = "1820";
           else if (Math.abs(pxDist - 400) < 60) calibInput.value = "3640";
@@ -1184,7 +1184,6 @@
     if (mode === 'calib' && isCalibBoxDragging) {
       isCalibBoxDragging = false;
       if (calibBoxStart && calibBoxCurrent && dist(calibBoxStart, calibBoxCurrent) > 15 / scale) {
-        // ドラッグ囲み完了時、OCR認識のみ実行
         processCalibBoxSelection(calibBoxStart, calibBoxCurrent);
       }
       calibBoxStart = null;
@@ -1208,7 +1207,6 @@
     redraw();
   }
 
-  // --- イベントリスナー（タッチ＆マウス） ---
   let isPinching = false;
   let pinchStartDist = 0;
   let pinchStartScale = 1.0;
@@ -1299,6 +1297,10 @@
       const moveDist = Math.hypot(t.clientX - touchStartPos.x, t.clientY - touchStartPos.y);
       if (moveDist > 8) {
         isTouchMoved = true;
+        // ★★★ ドラッグ囲みフラグのセット（復旧） ★★★
+        if (mode === 'calib' && !isCalibBoxDragging && calibModal.style.display !== 'block') {
+          isCalibBoxDragging = true;
+        }
       }
       handleMoveAt(t.clientX, t.clientY);
     }
@@ -1360,6 +1362,9 @@
       const mDist = Math.hypot(e.clientX - touchStartPos.x, e.clientY - touchStartPos.y);
       if (mDist > 6) {
         isMouseMoved = true;
+        if (mode === 'calib' && !isCalibBoxDragging && calibModal.style.display !== 'block') {
+          isCalibBoxDragging = true;
+        }
       }
       handleMoveAt(e.clientX, e.clientY);
     }
