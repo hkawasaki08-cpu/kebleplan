@@ -307,7 +307,7 @@
   let calibBoxStart = null;
   let calibBoxCurrent = null;
 
-  // 再利用スクラッチCanvas（メモリ保護）
+  // 再利用スクラッチCanvas
   let scratchCanvas = null;
   let scratchCtx = null;
   function getScratchContext(w, h) {
@@ -337,6 +337,16 @@
       sctx.drawImage(currentDocSource, sx, sy, sw, sh, 0, 0, sw, sh);
       return sctx.getImageData(0, 0, sw, sh);
     }
+  }
+
+  // 適応型ピクセル暗度判定関数（薄いグレーの極細線も逃さずキャッチ）
+  function isDarkPixel(r, g, b, threshold = 230) {
+    // 赤丸等のカラーマーカー判定
+    if (r > 130 && g < 105 && b < 105) return 2;
+    // 薄いグレー線判定（背景白250以上に対し、230以下なら線成分と判定）
+    const gray = (r * 299 + g * 587 + b * 114) / 1000;
+    if (gray < threshold) return 1;
+    return 0;
   }
 
   function closeMemoPanel() {
@@ -898,17 +908,17 @@
     for (let y = 0; y < sh; y++) {
       for (let x = 0; x < sw; x++) {
         const idx = (y * sw + x) * 4;
-        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-        if (r > 140 && g < 100 && b < 100) {
+        const pType = isDarkPixel(data[idx], data[idx + 1], data[idx + 2], 225);
+        if (pType === 2) {
           redSumX += x; redSumY += y; redCount++;
-        } else if (r < 170 && g < 170 && b < 170) {
+        } else if (pType === 1) {
           darkSumX += x; darkSumY += y; darkCount++;
         }
       }
     }
 
     // 形状1: ⚫️ (赤丸・黒丸塗りつぶしマーカー)
-    if (redCount > 12) {
+    if (redCount > 10) {
       return { x: minX + Math.round(redSumX / redCount), y: minY + Math.round(redSumY / redCount) };
     }
 
@@ -920,8 +930,8 @@
         for (let d = -3; d <= 3; d++) {
           const idxH = (y * sw + (x + d)) * 4;
           const idxV = ((y + d) * sw + x) * 4;
-          if (data[idxH] < 170) hLine++;
-          if (data[idxV] < 170) vLine++;
+          if (isDarkPixel(data[idxH], data[idxH + 1], data[idxH + 2], 225)) hLine++;
+          if (isDarkPixel(data[idxV], data[idxV + 1], data[idxV + 2], 225)) vLine++;
         }
         const score = hLine * vLine;
         if (score > maxCross) {
@@ -932,7 +942,7 @@
       }
     }
 
-    if (maxCross >= 9) {
+    if (maxCross >= 8) {
       return { x: minX + bestX, y: minY + bestY };
     }
 
@@ -943,7 +953,7 @@
     return { x: gx, y: gy };
   }
 
-  // --- 改良版：寸法値 / 水平ライン 分離・統合認識エンジン ---
+  // --- 改良版：薄い線・高感度適応型 分離・統合認識エンジン ---
   async function processCalibBoxSelection(p1, p2) {
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
@@ -999,31 +1009,57 @@
       calibNote.innerText = `自動読取: ${detectedNumber} mm（変更可能）`;
     }
 
-    // 2. 水平ラインの探索
-    const textH = textBBox ? textBBox.h : rh;
-    const textCenterY = textBBox ? (textBBox.y0 + textBBox.y1) / 2 : (minY + maxY) / 2;
-    const textCenterX = textBBox ? (textBBox.x0 + textBBox.x1) / 2 : (minX + maxX) / 2;
-
-    const scanW = Math.max(rw * 2, 220);
-    const scanX = Math.max(0, Math.round(textCenterX - scanW / 2));
-    const bandTop = Math.max(0, Math.round(textCenterY - textH * 1.6));
-    const bandBottom = Math.min(currentDocSource.height - 1, Math.round(textCenterY + textH * 1.6));
-    const bandH = Math.max(20, bandBottom - bandTop);
-
-    const bData = getSafeImageData(scanX, bandTop, scanW, bandH);
+    // 2. 水平ラインの探索（文字上下1/4〜1/2、または選択囲み枠内）
     let bestBaselineY = -1;
 
-    if (bData) {
-      let maxLineScore = 0;
-      for (let y = 2; y < bandH - 2; y++) {
-        let run = 0;
-        for (let x = 0; x < scanW; x++) {
-          const idx = (y * scanW + x) * 4;
-          if (bData.data[idx] < 170 && bData.data[idx + 1] < 170 && bData.data[idx + 2] < 170) run++;
+    // パターン1: 囲み枠そのものが水平線を選択している場合（横長で薄い線が通っている）
+    const boxData = getSafeImageData(minX, minY, rw, rh);
+    if (boxData) {
+      let maxRowDark = 0;
+      let peakRowY = -1;
+      for (let y = 0; y < rh; y++) {
+        let count = 0;
+        for (let x = 0; x < rw; x++) {
+          const idx = (y * rw + x) * 4;
+          if (isDarkPixel(boxData.data[idx], boxData.data[idx + 1], boxData.data[idx + 2], 230)) count++;
         }
-        if (run > maxLineScore && run > scanW * 0.18) {
-          maxLineScore = run;
-          bestBaselineY = bandTop + y;
+        if (count > maxRowDark) {
+          maxRowDark = count;
+          peakRowY = y;
+        }
+      }
+      // 囲み枠の幅の30%以上が連続して線成分であれば、囲み枠自体に水平線が存在
+      if (maxRowDark >= rw * 0.30 && peakRowY !== -1) {
+        bestBaselineY = minY + peakRowY;
+      }
+    }
+
+    // パターン2: 文字認識された場合、文字の上下（1/4〜1/2H）のオフセット帯を探す
+    if (bestBaselineY === -1 && textBBox) {
+      const textH = textBBox.h;
+      const textCenterY = (textBBox.y0 + textBBox.y1) / 2;
+      const textCenterX = (textBBox.x0 + textBBox.x1) / 2;
+
+      const scanW = Math.max(rw * 2, 220);
+      const scanX = Math.max(0, Math.round(textCenterX - scanW / 2));
+      const bandTop = Math.max(0, Math.round(textCenterY - textH * 1.8));
+      const bandBottom = Math.min(currentDocSource.height - 1, Math.round(textCenterY + textH * 1.8));
+      const bandH = Math.max(20, bandBottom - bandTop);
+
+      const bData = getSafeImageData(scanX, bandTop, scanW, bandH);
+      if (bData) {
+        let maxLineScore = 0;
+        for (let y = 2; y < bandH - 2; y++) {
+          let run = 0;
+          for (let x = 0; x < scanW; x++) {
+            const idx = (y * scanW + x) * 4;
+            // 薄いグレーも逃さないしきい値 230
+            if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 230)) run++;
+          }
+          if (run > maxLineScore && run > scanW * 0.15) {
+            maxLineScore = run;
+            bestBaselineY = bandTop + y;
+          }
         }
       }
     }
@@ -1034,9 +1070,10 @@
 
       const stripStartY = Math.max(0, bestBaselineY - 15);
       const stripH = 30;
+      const scanCenterX = textBBox ? (textBBox.x0 + textBBox.x1) / 2 : (minX + maxX) / 2;
       const maxDistance = 2500;
-      const stripStartX = Math.max(0, Math.round(textCenterX - maxDistance));
-      const stripEndX = Math.min(currentDocSource.width - 1, Math.round(textCenterX + maxDistance));
+      const stripStartX = Math.max(0, Math.round(scanCenterX - maxDistance));
+      const stripEndX = Math.min(currentDocSource.width - 1, Math.round(scanCenterX + maxDistance));
       const stripW = stripEndX - stripStartX;
 
       const stripData = getSafeImageData(stripStartX, stripStartY, stripW, stripH);
@@ -1049,7 +1086,7 @@
           let v = 0;
           for (let y = 0; y < stripH; y++) {
             const idx = (y * stripW + lx) * 4;
-            if (lData[idx] < 170 && lData[idx + 1] < 170 && lData[idx + 2] < 170) v++;
+            if (isDarkPixel(lData[idx], lData[idx + 1], lData[idx + 2], 225)) v++;
           }
           return v;
         };
@@ -1059,14 +1096,14 @@
             const cy = localBaseY + dy;
             if (cy >= 0 && cy < stripH) {
               const idx = (cy * stripW + lx) * 4;
-              if (lData[idx] < 170 && lData[idx + 1] < 170 && lData[idx + 2] < 170) return true;
+              if (isDarkPixel(lData[idx], lData[idx + 1], lData[idx + 2], 230)) return true;
             }
           }
           return false;
         };
 
         // 左方向へ延長スキャン
-        const searchLeftStart = Math.max(10, Math.round(textCenterX - stripStartX - 25));
+        const searchLeftStart = Math.max(10, Math.round(scanCenterX - stripStartX - 20));
         let rawP1 = null;
         let leftEnd = searchLeftStart;
         let gapL = 0;
@@ -1079,7 +1116,7 @@
             gapL++;
             if (gapL > 45) break;
           }
-          if (getVScore(lx) >= 12 && lx < searchLeftStart - 25) {
+          if (getVScore(lx) >= 10 && lx < searchLeftStart - 20) {
             rawP1 = { x: stripStartX + lx, y: bestBaselineY };
             let more = false;
             for (let look = lx - 10; look >= Math.max(5, lx - 35); look--) {
@@ -1091,7 +1128,7 @@
         if (!rawP1) rawP1 = { x: stripStartX + leftEnd, y: bestBaselineY };
 
         // 右方向へ延長スキャン
-        const searchRightStart = Math.min(stripW - 10, Math.round(textCenterX - stripStartX + 25));
+        const searchRightStart = Math.min(stripW - 10, Math.round(scanCenterX - stripStartX + 20));
         let rawP2 = null;
         let rightEnd = searchRightStart;
         let gapR = 0;
@@ -1104,7 +1141,7 @@
             gapR++;
             if (gapR > 45) break;
           }
-          if (getVScore(lx) >= 12 && lx > searchRightStart + 25) {
+          if (getVScore(lx) >= 10 && lx > searchRightStart + 20) {
             rawP2 = { x: stripStartX + lx, y: bestBaselineY };
             let more = false;
             for (let look = lx + 10; look <= Math.min(stripW - 5, lx + 35); look++) {
@@ -1138,13 +1175,11 @@
 
     // UIの表示分岐
     if (calibPoints.length === 2) {
-      // 点1・点2が検出できた場合は、決定モーダルを表示
       closeMemoPanel();
       calibModal.style.display = 'block';
       calibInput.focus();
       statusMsg.innerText = "交点（⚫️/十字/◯）を識別し中央に点打ちしました。「決定」を押してください";
     } else if (detectedNumber) {
-      // 寸法値のみ読み取り成功（水平線未検出）の場合：モーダルは出さず、次の操作を促す
       calibModal.style.display = 'none';
       statusMsg.innerText = `寸法値: ${detectedNumber} mm を認識！続けて直下の「水平線」を囲んでください`;
     } else {
