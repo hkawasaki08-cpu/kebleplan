@@ -149,7 +149,7 @@
 <body>
 
 <header id="appHeader">
-  <div class="app-title-ver">H M-r ver0.82</div>
+  <div class="app-title-ver">H M-r ver0.83</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -270,14 +270,13 @@
   let imgLoaded = false;
   let currentMeters = 0;
 
-  // --- IndexedDB ストレージ管理（図面バイナリ＆設定の永続化） ---
-  const DB_NAME = 'KeblePlanDrawingDB';
-  const DB_VERSION = 1;
+  // --- IndexedDB ストレージ管理（軽量・安全） ---
+  const DB_NAME = 'KeblePlanDrawingDB_v2';
   const STORE_NAME = 'app_state';
 
   function openDB() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      const req = indexedDB.open(DB_NAME, 1);
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
@@ -297,9 +296,7 @@
       for (const key in data) {
         store.put(data[key], key);
       }
-    } catch (e) {
-      console.warn('DB保存エラー:', e);
-    }
+    } catch (e) {}
   }
 
   async function getStateFromDB(key) {
@@ -312,18 +309,14 @@
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
       });
-    } catch (e) {
-      return null;
-    }
+    } catch (e) { return null; }
   }
 
   async function clearDrawingFromDB() {
     try {
       const db = await openDB();
       const tx = db.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).delete('currentDrawing');
-      tx.objectStore(STORE_NAME).delete('calibPoints');
-      tx.objectStore(STORE_NAME).delete('pixelsPerMeter');
+      tx.objectStore(STORE_NAME).clear();
     } catch (e) {}
   }
 
@@ -357,6 +350,24 @@
   let isCalibBoxDragging = false;
   let calibBoxStart = null;
   let calibBoxCurrent = null;
+
+  // Tesseract シングルトン管理（メモリ枯渇防止）
+  let tesseractWorker = null;
+  async function getOCRWorker() {
+    if (!tesseractWorker && window.Tesseract) {
+      tesseractWorker = await Tesseract.createWorker({
+        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
+        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',
+        logger: () => {}
+      });
+      await tesseractWorker.loadLanguage('eng');
+      await tesseractWorker.initialize('eng');
+      await tesseractWorker.setParameters({
+        tessedit_char_whitelist: '0123456789'
+      });
+    }
+    return tesseractWorker;
+  }
 
   // 再利用スクラッチCanvas
   let scratchCanvas = null;
@@ -581,7 +592,6 @@
           pdfControls.style.display = 'flex';
           await renderPdfPage(currentPdfPage);
 
-          // PDFバイナリをIndexedDBに永続保存
           saveStateToDB({
             currentDrawing: {
               type: 'pdf',
@@ -607,7 +617,6 @@
           resetView();
           setMode('calib');
 
-          // 画像DataURLをIndexedDBに永続保存
           saveStateToDB({
             currentDrawing: {
               type: 'image',
@@ -627,7 +636,8 @@
     try {
       const page = await pdfDoc.getPage(pageNumber);
       const unscaledViewport = page.getViewport({ scale: 1.0 });
-      const maxDim = 2400;
+      // iOS Safari制限対策: 最大2200pxに抑えてメモリクラッシュ物理防止
+      const maxDim = 2200;
       const fitScale = Math.min(1.8, maxDim / Math.max(unscaledViewport.width, unscaledViewport.height));
       const viewport = page.getViewport({ scale: fitScale });
 
@@ -658,9 +668,7 @@
       currentStroke = [];
       completedStrokes = [];
       await renderPdfPage(currentPdfPage);
-      saveStateToDB({
-        'currentDrawing.page': currentPdfPage
-      });
+      saveStateToDB({ 'currentDrawing.page': currentPdfPage });
     }
   };
 
@@ -672,9 +680,7 @@
       currentStroke = [];
       completedStrokes = [];
       await renderPdfPage(currentPdfPage);
-      saveStateToDB({
-        'currentDrawing.page': currentPdfPage
-      });
+      saveStateToDB({ 'currentDrawing.page': currentPdfPage });
     }
   };
 
@@ -1026,7 +1032,7 @@
     return { x: gx, y: gy };
   }
 
-  // --- 改良版：ブロック式ストリーミング探索 ---
+  // --- 改良版：ブロック式ストリーミング探索（メモリクラッシュ＆文字内部誤認の完全排除） ---
   async function processCalibBoxSelection(p1, p2) {
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
@@ -1038,19 +1044,18 @@
 
     statusMsg.innerText = "🔍 選択範囲を解析中...";
 
-    // 1. OCRで数値（寸法値）の有無を判定
+    // 1. OCR（文字認識）による数値抽出（シングルトンワーカー使用）
     let detectedNumber = null;
     let textBBox = null;
 
     try {
-      if (window.Tesseract) {
+      const worker = await getOCRWorker();
+      if (worker) {
         const { canvas: sc, ctx: sctx } = getScratchContext(rw, rh);
         sctx.clearRect(0, 0, rw, rh);
         sctx.drawImage(currentDocSource, minX, minY, rw, rh, 0, 0, rw, rh);
 
-        const result = await Tesseract.recognize(sc, 'eng', {
-          tessedit_char_whitelist: '0123456789'
-        });
+        const result = await worker.recognize(sc);
         const fullText = result.data.text || "";
         const matches = fullText.match(/\d{3,6}/g);
         if (matches && matches.length > 0) {
@@ -1083,39 +1088,43 @@
     }
 
     // 2. 水平ライン（主寸法線）の特定
+    // 【重要】文字の内部（Y_top〜Y_bottom）は文字ストローク（2や3の横棒）なので絶対に探索しない！
     let bestBaselineY = -1;
 
-    // 囲み枠そのものに水平線が含まれているか
-    const boxData = getSafeImageData(minX, minY, rw, rh);
-    if (boxData) {
-      let maxRowDark = 0;
-      let peakRowY = -1;
-      for (let y = 0; y < rh; y++) {
-        let count = 0;
-        for (let x = 0; x < rw; x++) {
-          const idx = (y * rw + x) * 4;
-          if (isDarkPixel(boxData.data[idx], boxData.data[idx + 1], boxData.data[idx + 2], 230)) count++;
+    // パターン1: 囲み枠自体が水平線の場合（文字が認識されていない純粋な線囲み）
+    if (!textBBox) {
+      const boxData = getSafeImageData(minX, minY, rw, rh);
+      if (boxData) {
+        let maxRowDark = 0;
+        let peakRowY = -1;
+        for (let y = 0; y < rh; y++) {
+          let count = 0;
+          for (let x = 0; x < rw; x++) {
+            const idx = (y * rw + x) * 4;
+            if (isDarkPixel(boxData.data[idx], boxData.data[idx + 1], boxData.data[idx + 2], 230)) count++;
+          }
+          if (count > maxRowDark) {
+            maxRowDark = count;
+            peakRowY = y;
+          }
         }
-        if (count > maxRowDark) {
-          maxRowDark = count;
-          peakRowY = y;
+        if (maxRowDark >= rw * 0.25 && peakRowY !== -1) {
+          bestBaselineY = minY + peakRowY;
         }
-      }
-      if (maxRowDark >= rw * 0.25 && peakRowY !== -1) {
-        bestBaselineY = minY + peakRowY;
       }
     }
 
-    // 文字認識時、文字のすぐ下（0.25H〜0.65H）の薄い水平線を探す
+    // パターン2: 文字が認識された場合、文字の「直下（文字の下端から0.2H〜0.7H外側）」のみを探す
     if (bestBaselineY === -1 && textBBox) {
       const textH = textBBox.h;
       const textCenterX = (textBBox.x0 + textBBox.x1) / 2;
       const scanW = Math.max(rw * 2, 220);
       const scanX = Math.max(0, Math.round(textCenterX - scanW / 2));
 
-      const bandTop = Math.round(textBBox.y1 + textH * 0.15);
-      const bandBottom = Math.round(textBBox.y1 + textH * 0.75);
-      const bandH = Math.max(10, bandBottom - bandTop);
+      // 文字の下端（y1）より外側のみサンプリング
+      const bandTop = Math.round(textBBox.y1 + textH * 0.20);
+      const bandBottom = Math.round(textBBox.y1 + textH * 0.70);
+      const bandH = Math.max(8, bandBottom - bandTop);
 
       const bData = getSafeImageData(scanX, bandTop, scanW, bandH);
       if (bData) {
@@ -1134,7 +1143,7 @@
       }
     }
 
-    // 3. 水平ラインが存在する場合 ➜ 小ブロック単位のストリーミング左右走査
+    // 3. 水平ラインが存在する場合 ➜ 小ブロック単位のストリーミング左右走査（OOM回避）
     if (bestBaselineY !== -1) {
       statusMsg.innerText = "🔍 水平ライン延長線上の交点を認識中...";
 
@@ -1228,7 +1237,6 @@
       ];
       redraw();
 
-      // 点1・点2をDBに永続化保存
       saveStateToDB({ calibPoints: calibPoints });
     }
 
@@ -1551,7 +1559,6 @@
       calibModal.style.display = 'none';
       setMode('polyline');
       statusMsg.innerText = `縮尺設定完了！「角タップ」または「なぞる」で計測できます`;
-      // 縮尺値を永続保存
       saveStateToDB({ pixelsPerMeter: pixelsPerMeter, calibPoints: calibPoints });
     } else {
       if (calibPoints.length < 2) {
@@ -1690,7 +1697,6 @@
     resizeCanvas();
     updateMemoView();
 
-    // IndexedDBからキャッシュされた図面を自動復元
     statusMsg.innerText = "図面キャッシュを確認中...";
     const savedDrawing = await getStateFromDB('currentDrawing');
     const savedPPM = await getStateFromDB('pixelsPerMeter');
@@ -1732,7 +1738,6 @@
       }
     }
 
-    // 保存図面がない場合はサンプル図面を読み込み
     loadSamplePlan();
   });
 </script>
