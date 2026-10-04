@@ -65,7 +65,7 @@
 
     .floating-box {
       display: none; position: absolute; top: 10px; right: 10px;
-      background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      background: rgba(255, 255, 255, 0.88); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
       color: #111; padding: 10px 12px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
       border: 1px solid rgba(255, 255, 255, 0.4); z-index: 35; width: 220px; text-align: center;
     }
@@ -307,7 +307,7 @@
   let calibBoxStart = null;
   let calibBoxCurrent = null;
 
-  // 再利用スクラッチCanvas（メモリリーク完全防止）
+  // 再利用スクラッチCanvas（メモリリーク・クラッシュ完全防止）
   let scratchCanvas = null;
   let scratchCtx = null;
   function getScratchContext(w, h) {
@@ -331,11 +331,11 @@
     if (sw <= 0 || sh <= 0) return null;
 
     if (currentDocSource instanceof HTMLCanvasElement) {
-      return currentDocSource.getContext('2d').getImageData(sx, sy, sw, sh);
+      return currentDocSource.getContext('2d', { willReadFrequently: true }).getImageData(sx, sy, sw, sh);
     } else {
       const { ctx: sctx } = getScratchContext(sw, sh);
       sctx.clearRect(0, 0, sw, sh);
-      sctx.drawImage(currentDocSource, sx, sy, sw, sh, 0, 0, sw, sw);
+      sctx.drawImage(currentDocSource, sx, sy, sw, sh, 0, 0, sw, sh);
       return sctx.getImageData(0, 0, sw, sh);
     }
   }
@@ -550,7 +550,12 @@
     statusMsg.innerText = `PDF ${pageNumber} ページ目を描画中...`;
     try {
       const page = await pdfDoc.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 2.0 });
+      
+      // iOS Safariのメモリ上限ガード：長辺を最大2800pxに制限
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+      const maxDim = 2800;
+      const fitScale = Math.min(2.0, maxDim / Math.max(unscaledViewport.width, unscaledViewport.height));
+      const viewport = page.getViewport({ scale: fitScale });
 
       const pdfCanvas = document.createElement('canvas');
       const pdfCtx = pdfCanvas.getContext('2d');
@@ -958,7 +963,7 @@
 
     try {
       if (window.Tesseract) {
-        // 必要最小限のスクラッチCanvasのみ使用
+        // 必要最小限のスクラッチCanvasのみ使用（クラッシュ防止）
         const { canvas: sc, ctx: sctx } = getScratchContext(rw, rh);
         sctx.clearRect(0, 0, rw, rh);
         sctx.drawImage(currentDocSource, minX, minY, rw, rh, 0, 0, rw, rh);
@@ -973,7 +978,7 @@
           detectedNumber = matches[0];
         }
 
-        if (result.data.words && result.data.words.length > 0) {
+        if (result.data.words) {
           for (let w of result.data.words) {
             if (w.text && w.text.includes(detectedNumber || "")) {
               textBBox = {
