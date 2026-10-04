@@ -844,9 +844,9 @@
     ctx.stroke();
   }
 
-  // --- 高精度アンカー型交点検出エンジン ---
+  // --- 改良版：最遠端点（最外郭交点）捕捉エンジン ---
   async function processCalibBoxSelection(p1, p2) {
-    const margin = 30;
+    const margin = 20;
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
     const minY = Math.min(p1.y, p2.y);
@@ -892,7 +892,7 @@
       }
     }
 
-    // 1. OCR（文字認識）による数値抽出 & 寸法文字アンカーのBBox取得
+    // 1. OCR（文字認識）による数値抽出 & 文字マスク
     let detectedNumber = null;
     let textAnchor = null;
     const textMask = new Uint8Array(rw * rh);
@@ -909,7 +909,6 @@
           detectedNumber = matches[0];
         }
 
-        // 最も有力な数字の単語BBoxをアンカーとして特定
         if (result.data.words && result.data.words.length > 0) {
           for (let w of result.data.words) {
             if (w.text && w.text.includes(detectedNumber || "")) {
@@ -987,7 +986,7 @@
       }
     }
 
-    // パターンB: 実際のCAD白黒図面（文字アンカー連動ベースライントレース）
+    // パターンB: 実際のCAD白黒図面（中間の通り芯をスキップし、囲み枠内の最外郭交点を捕捉）
     if (!detectedP1 || !detectedP2) {
       const cleanLine = new Uint8Array(rw * rh);
       for (let i = 0; i < rw * rh; i++) {
@@ -996,7 +995,7 @@
         }
       }
 
-      // 1. 寸法文字アンカーの近傍を通る主寸法線（水平線）のY座標を特定
+      // 1. 寸法文字アンカー付近を通る主寸法線（水平線）のY座標を特定
       let baselineY = -1;
       let maxHLineRun = 0;
 
@@ -1018,15 +1017,12 @@
         baselineY = textAnchor ? Math.round(textAnchor.cy) : Math.round(rh / 2);
       }
 
-      // 2. 寸法線（baselineY）に沿って文字アンカーから左右へトレース
-      const startX = textAnchor ? Math.round(textAnchor.cx) : Math.round(rw / 2);
-
-      // 左方向の目盛り交点を探索
-      for (let x = startX - 10; x >= 4; x--) {
-        // baselineYの上下±5px範囲で縦方向の連続線（目盛り線・通り芯）を判定
-        for (let dy = -4; dy <= 4; dy++) {
+      // 2. 主寸法線の近傍（上下±6px）にある全ての縦目盛り交点を収集
+      const validIntersections = [];
+      for (let x = 6; x < rw - 6; x++) {
+        for (let dy = -5; dy <= 5; dy++) {
           const cy = baselineY + dy;
-          if (cy < 4 || cy >= rh - 4) continue;
+          if (cy < 6 || cy >= rh - 6) continue;
 
           let vRun = 0;
           for (let vy = -12; vy <= 12; vy++) {
@@ -1034,33 +1030,32 @@
           }
 
           if (vRun >= 7) {
-            detectedP1 = { x: rx + x, y: ry + cy };
-            break;
+            validIntersections.push({ x: rx + x, y: ry + cy, lx: x });
+            break; // 同じX列では1つ採用
           }
         }
-        if (detectedP1) break;
       }
 
-      // 右方向の目盛り交点を探索
-      for (let x = startX + 10; x < rw - 4; x++) {
-        for (let dy = -4; dy <= 4; dy++) {
-          const cy = baselineY + dy;
-          if (cy < 4 || cy >= rh - 4) continue;
+      const textCenterX = textAnchor ? textAnchor.cx : rw / 2;
 
-          let vRun = 0;
-          for (let vy = -12; vy <= 12; vy++) {
-            if (cy + vy >= 0 && cy + vy < rh && cleanLine[(cy + vy) * rw + x] === 1) vRun++;
-          }
-
-          if (vRun >= 7) {
-            detectedP2 = { x: rx + x, y: ry + cy };
-            break;
-          }
+      // 3. 中間の通り芯で止まらず、囲み枠内の最も外側（左端・右端）の交点を抽出
+      if (validIntersections.length >= 2) {
+        // 文字の左側にある交点群の中から「最も左（外側）」を選択
+        const leftCandidates = validIntersections.filter(p => p.lx < textCenterX - 15);
+        if (leftCandidates.length > 0) {
+          leftCandidates.sort((a, b) => a.lx - b.lx);
+          detectedP1 = { x: leftCandidates[0].x, y: leftCandidates[0].y };
         }
-        if (detectedP2) break;
+
+        // 文字の右側にある交点群の中から「最も右（外側）」を選択
+        const rightCandidates = validIntersections.filter(p => p.lx > textCenterX + 15);
+        if (rightCandidates.length > 0) {
+          rightCandidates.sort((a, b) => b.lx - a.lx);
+          detectedP2 = { x: rightCandidates[0].x, y: rightCandidates[0].y };
+        }
       }
 
-      // トレースで特定できなかった場合のフォールバック（十字畳み込み）
+      // フォールバック（十字畳み込み）
       if (!detectedP1 || !detectedP2) {
         const crossScore = new Float32Array(rw * rh);
         const span = 8;
@@ -1080,15 +1075,14 @@
           }
         }
 
-        const midX = rw / 2;
         let maxL = 0, bestL = null;
         let maxR = 0, bestR = null;
         for (let y = span; y < rh - span; y++) {
           for (let x = span; x < rw - span; x++) {
             const s = crossScore[y * rw + x];
             if (s > 0) {
-              if (x < midX && s > maxL) { maxL = s; bestL = { x: rx + x, y: ry + y }; }
-              else if (x >= midX && s > maxR) { maxR = s; bestR = { x: rx + x, y: ry + y }; }
+              if (x < textCenterX && s > maxL) { maxL = s; bestL = { x: rx + x, y: ry + y }; }
+              else if (x >= textCenterX && s > maxR) { maxR = s; bestR = { x: rx + x, y: ry + y }; }
             }
           }
         }
