@@ -149,7 +149,7 @@
 <body>
 
 <header id="appHeader">
-  <div class="app-title-ver">H M-r ver0.8</div>
+  <div class="app-title-ver">H M-r ver0.82</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -270,21 +270,72 @@
   let imgLoaded = false;
   let currentMeters = 0;
 
+  // --- IndexedDB ストレージ管理（図面バイナリ＆設定の永続化） ---
+  const DB_NAME = 'KeblePlanDrawingDB';
+  const DB_VERSION = 1;
+  const STORE_NAME = 'app_state';
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function saveStateToDB(data) {
+    try {
+      const db = await openDB();
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      for (const key in data) {
+        store.put(data[key], key);
+      }
+    } catch (e) {
+      console.warn('DB保存エラー:', e);
+    }
+  }
+
+  async function getStateFromDB(key) {
+    try {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function clearDrawingFromDB() {
+    try {
+      const db = await openDB();
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete('currentDrawing');
+      tx.objectStore(STORE_NAME).delete('calibPoints');
+      tx.objectStore(STORE_NAME).delete('pixelsPerMeter');
+    } catch (e) {}
+  }
+
   const STORAGE_KEY = 'kebleplan_memo_cache';
   let memoList = [];
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      memoList = JSON.parse(saved);
-    }
-  } catch (e) {
-    memoList = [];
-  }
+    if (saved) memoList = JSON.parse(saved);
+  } catch (e) { memoList = []; }
 
   function saveMemoToStorage() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(memoList));
-    } catch (e) {}
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(memoList)); } catch (e) {}
   }
 
   let pdfDoc = null;
@@ -339,13 +390,10 @@
     }
   }
 
-  // 適応型ピクセル暗度判定関数（薄いグレーの極細線も逃さずキャッチ）
-  function isDarkPixel(r, g, b, threshold = 230) {
-    // 赤丸等のカラーマーカー判定
-    if (r > 130 && g < 105 && b < 105) return 2;
-    // 薄いグレー線判定（背景白250以上に対し、230以下なら線成分と判定）
+  function isDarkPixel(r, g, b, threshold = 232) {
+    if (r > 130 && g < 105 && b < 105) return 2; // 赤マーカー
     const gray = (r * 299 + g * 587 + b * 114) / 1000;
-    if (gray < threshold) return 1;
+    if (gray < threshold) return 1; // 薄いグレー線
     return 0;
   }
 
@@ -482,6 +530,7 @@
   }
 
   function loadSamplePlan() {
+    clearDrawingFromDB();
     pixelsPerMeter = null;
     calibPoints = [];
     polylinePoints = [];
@@ -531,6 +580,15 @@
           currentPdfPage = 1;
           pdfControls.style.display = 'flex';
           await renderPdfPage(currentPdfPage);
+
+          // PDFバイナリをIndexedDBに永続保存
+          saveStateToDB({
+            currentDrawing: {
+              type: 'pdf',
+              data: typedarray,
+              page: currentPdfPage
+            }
+          });
         } catch (err) {
           alert("PDF読み込み失敗: " + err.message);
           statusMsg.innerText = "PDF読み込みに失敗しました";
@@ -540,6 +598,7 @@
     } else {
       const reader = new FileReader();
       reader.onload = (evt) => {
+        const dataUrl = evt.target.result;
         const img = new Image();
         img.onload = () => {
           currentDocSource = img;
@@ -547,8 +606,16 @@
           resizeCanvas();
           resetView();
           setMode('calib');
+
+          // 画像DataURLをIndexedDBに永続保存
+          saveStateToDB({
+            currentDrawing: {
+              type: 'image',
+              data: dataUrl
+            }
+          });
         };
-        img.src = evt.target.result;
+        img.src = dataUrl;
       };
       reader.readAsDataURL(file);
     }
@@ -560,8 +627,8 @@
     try {
       const page = await pdfDoc.getPage(pageNumber);
       const unscaledViewport = page.getViewport({ scale: 1.0 });
-      const maxDim = 2800;
-      const fitScale = Math.min(2.0, maxDim / Math.max(unscaledViewport.width, unscaledViewport.height));
+      const maxDim = 2400;
+      const fitScale = Math.min(1.8, maxDim / Math.max(unscaledViewport.width, unscaledViewport.height));
       const viewport = page.getViewport({ scale: fitScale });
 
       const pdfCanvas = document.createElement('canvas');
@@ -591,6 +658,9 @@
       currentStroke = [];
       completedStrokes = [];
       await renderPdfPage(currentPdfPage);
+      saveStateToDB({
+        'currentDrawing.page': currentPdfPage
+      });
     }
   };
 
@@ -602,6 +672,9 @@
       currentStroke = [];
       completedStrokes = [];
       await renderPdfPage(currentPdfPage);
+      saveStateToDB({
+        'currentDrawing.page': currentPdfPage
+      });
     }
   };
 
@@ -830,7 +903,7 @@
       ctx.restore();
     }
 
-    // 縮尺基準点（点1・点2）の描画（設定完了後も薄くガイド表示）
+    // 縮尺基準点（点1・点2）の描画
     calibPoints.forEach((p, idx) => {
       ctx.fillStyle = (mode === 'calib') ? '#ff1744' : 'rgba(255, 23, 68, 0.7)';
       ctx.beginPath();
@@ -891,7 +964,7 @@
   }
 
   // --- 交点形状認識エンジン（⚫️ / 十字 / 十字＋◯ を識別して中心にスナップ） ---
-  function identifyAndSnapIntersection(gx, gy, searchW = 18) {
+  function identifyAndSnapIntersection(gx, gy, searchW = 16) {
     const minX = Math.max(0, gx - searchW);
     const minY = Math.max(0, gy - searchW);
     const sw = Math.min(currentDocSource.width - minX, searchW * 2);
@@ -953,7 +1026,7 @@
     return { x: gx, y: gy };
   }
 
-  // --- 改良版：薄い線・高感度適応型 分離・統合認識エンジン ---
+  // --- 改良版：ブロック式ストリーミング探索 ---
   async function processCalibBoxSelection(p1, p2) {
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
@@ -1009,10 +1082,10 @@
       calibNote.innerText = `自動読取: ${detectedNumber} mm（変更可能）`;
     }
 
-    // 2. 水平ラインの探索（文字上下1/4〜1/2、または選択囲み枠内）
+    // 2. 水平ライン（主寸法線）の特定
     let bestBaselineY = -1;
 
-    // パターン1: 囲み枠そのものが水平線を選択している場合（横長で薄い線が通っている）
+    // 囲み枠そのものに水平線が含まれているか
     const boxData = getSafeImageData(minX, minY, rw, rh);
     if (boxData) {
       let maxRowDark = 0;
@@ -1028,33 +1101,30 @@
           peakRowY = y;
         }
       }
-      // 囲み枠の幅の30%以上が連続して線成分であれば、囲み枠自体に水平線が存在
-      if (maxRowDark >= rw * 0.30 && peakRowY !== -1) {
+      if (maxRowDark >= rw * 0.25 && peakRowY !== -1) {
         bestBaselineY = minY + peakRowY;
       }
     }
 
-    // パターン2: 文字認識された場合、文字の上下（1/4〜1/2H）のオフセット帯を探す
+    // 文字認識時、文字のすぐ下（0.25H〜0.65H）の薄い水平線を探す
     if (bestBaselineY === -1 && textBBox) {
       const textH = textBBox.h;
-      const textCenterY = (textBBox.y0 + textBBox.y1) / 2;
       const textCenterX = (textBBox.x0 + textBBox.x1) / 2;
-
       const scanW = Math.max(rw * 2, 220);
       const scanX = Math.max(0, Math.round(textCenterX - scanW / 2));
-      const bandTop = Math.max(0, Math.round(textCenterY - textH * 1.8));
-      const bandBottom = Math.min(currentDocSource.height - 1, Math.round(textCenterY + textH * 1.8));
-      const bandH = Math.max(20, bandBottom - bandTop);
+
+      const bandTop = Math.round(textBBox.y1 + textH * 0.15);
+      const bandBottom = Math.round(textBBox.y1 + textH * 0.75);
+      const bandH = Math.max(10, bandBottom - bandTop);
 
       const bData = getSafeImageData(scanX, bandTop, scanW, bandH);
       if (bData) {
         let maxLineScore = 0;
-        for (let y = 2; y < bandH - 2; y++) {
+        for (let y = 1; y < bandH - 1; y++) {
           let run = 0;
           for (let x = 0; x < scanW; x++) {
             const idx = (y * scanW + x) * 4;
-            // 薄いグレーも逃さないしきい値 230
-            if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 230)) run++;
+            if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 232)) run++;
           }
           if (run > maxLineScore && run > scanW * 0.15) {
             maxLineScore = run;
@@ -1064,104 +1134,104 @@
       }
     }
 
-    // 水平ラインが存在する場合 ➜ 延長線上の交点検出へ
+    // 3. 水平ラインが存在する場合 ➜ 小ブロック単位のストリーミング左右走査
     if (bestBaselineY !== -1) {
       statusMsg.innerText = "🔍 水平ライン延長線上の交点を認識中...";
 
-      const stripStartY = Math.max(0, bestBaselineY - 15);
-      const stripH = 30;
       const scanCenterX = textBBox ? (textBBox.x0 + textBBox.x1) / 2 : (minX + maxX) / 2;
-      const maxDistance = 2500;
-      const stripStartX = Math.max(0, Math.round(scanCenterX - maxDistance));
-      const stripEndX = Math.min(currentDocSource.width - 1, Math.round(scanCenterX + maxDistance));
-      const stripW = stripEndX - stripStartX;
+      const stripH = 20;
+      const stripStartY = Math.max(0, bestBaselineY - 10);
+      const blockSize = 150;
 
-      const stripData = getSafeImageData(stripStartX, stripStartY, stripW, stripH);
+      let detectedP1_cand = null;
+      let detectedP2_cand = null;
 
-      if (stripData) {
-        const lData = stripData.data;
-        const localBaseY = bestBaselineY - stripStartY;
+      // 左方向ブロック探索
+      let curX = Math.round(scanCenterX - 15);
+      let gapCount = 0;
+      while (curX > 10 && !detectedP1_cand && gapCount < 3) {
+        const blockW = Math.min(blockSize, curX);
+        const startBx = curX - blockW;
+        const bData = getSafeImageData(startBx, stripStartY, blockW, stripH);
+        if (!bData) break;
 
-        const getVScore = (lx) => {
-          let v = 0;
-          for (let y = 0; y < stripH; y++) {
-            const idx = (y * stripW + lx) * 4;
-            if (isDarkPixel(lData[idx], lData[idx + 1], lData[idx + 2], 225)) v++;
+        let hasHInBlock = false;
+        for (let lx = blockW - 1; lx >= 0; lx--) {
+          let vScore = 0;
+          for (let ly = 0; ly < stripH; ly++) {
+            const idx = (ly * blockW + lx) * 4;
+            if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 228)) vScore++;
           }
-          return v;
-        };
-
-        const hasH = (lx) => {
-          for (let dy = -3; dy <= 3; dy++) {
-            const cy = localBaseY + dy;
+          let hPresent = false;
+          for (let dy = -2; dy <= 2; dy++) {
+            const cy = 10 + dy;
             if (cy >= 0 && cy < stripH) {
-              const idx = (cy * stripW + lx) * 4;
-              if (isDarkPixel(lData[idx], lData[idx + 1], lData[idx + 2], 230)) return true;
+              const idx = (cy * blockW + lx) * 4;
+              if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 230)) { hPresent = true; break; }
             }
           }
-          return false;
-        };
+          if (hPresent) hasHInBlock = true;
 
-        // 左方向へ延長スキャン
-        const searchLeftStart = Math.max(10, Math.round(scanCenterX - stripStartX - 20));
-        let rawP1 = null;
-        let leftEnd = searchLeftStart;
-        let gapL = 0;
-
-        for (let lx = searchLeftStart; lx >= 5; lx--) {
-          if (hasH(lx)) {
-            gapL = 0;
-            leftEnd = lx;
-          } else {
-            gapL++;
-            if (gapL > 45) break;
-          }
-          if (getVScore(lx) >= 10 && lx < searchLeftStart - 20) {
-            rawP1 = { x: stripStartX + lx, y: bestBaselineY };
-            let more = false;
-            for (let look = lx - 10; look >= Math.max(5, lx - 35); look--) {
-              if (hasH(look)) { more = true; break; }
-            }
-            if (!more) break;
+          if (vScore >= 8) {
+            detectedP1_cand = { x: startBx + lx, y: bestBaselineY };
+            break;
           }
         }
-        if (!rawP1) rawP1 = { x: stripStartX + leftEnd, y: bestBaselineY };
+        if (!hasHInBlock) gapCount++;
+        else gapCount = 0;
 
-        // 右方向へ延長スキャン
-        const searchRightStart = Math.min(stripW - 10, Math.round(scanCenterX - stripStartX + 20));
-        let rawP2 = null;
-        let rightEnd = searchRightStart;
-        let gapR = 0;
-
-        for (let lx = searchRightStart; lx < stripW - 5; lx++) {
-          if (hasH(lx)) {
-            gapR = 0;
-            rightEnd = lx;
-          } else {
-            gapR++;
-            if (gapR > 45) break;
-          }
-          if (getVScore(lx) >= 10 && lx > searchRightStart + 20) {
-            rawP2 = { x: stripStartX + lx, y: bestBaselineY };
-            let more = false;
-            for (let look = lx + 10; look <= Math.min(stripW - 5, lx + 35); look++) {
-              if (hasH(look)) { more = true; break; }
-            }
-            if (!more) break;
-          }
-        }
-        if (!rawP2) rawP2 = { x: stripStartX + rightEnd, y: bestBaselineY };
-
-        // 形状認識識別エンジンを実行して中心へスナップ
-        calibPoints = [
-          identifyAndSnapIntersection(rawP1.x, rawP1.y),
-          identifyAndSnapIntersection(rawP2.x, rawP2.y)
-        ];
-        redraw();
+        curX -= blockW;
       }
+
+      // 右方向ブロック探索
+      curX = Math.round(scanCenterX + 15);
+      gapCount = 0;
+      while (curX < currentDocSource.width - 10 && !detectedP2_cand && gapCount < 3) {
+        const blockW = Math.min(blockSize, currentDocSource.width - curX);
+        const bData = getSafeImageData(curX, stripStartY, blockW, stripH);
+        if (!bData) break;
+
+        let hasHInBlock = false;
+        for (let lx = 0; lx < blockW; lx++) {
+          let vScore = 0;
+          for (let ly = 0; ly < stripH; ly++) {
+            const idx = (ly * blockW + lx) * 4;
+            if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 228)) vScore++;
+          }
+          let hPresent = false;
+          for (let dy = -2; dy <= 2; dy++) {
+            const cy = 10 + dy;
+            if (cy >= 0 && cy < stripH) {
+              const idx = (cy * blockW + lx) * 4;
+              if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 230)) { hPresent = true; break; }
+            }
+          }
+          if (hPresent) hasHInBlock = true;
+
+          if (vScore >= 8) {
+            detectedP2_cand = { x: curX + lx, y: bestBaselineY };
+            break;
+          }
+        }
+        if (!hasHInBlock) gapCount++;
+        else gapCount = 0;
+
+        curX += blockW;
+      }
+
+      const p1Raw = detectedP1_cand || { x: minX, y: bestBaselineY };
+      const p2Raw = detectedP2_cand || { x: maxX, y: bestBaselineY };
+
+      calibPoints = [
+        identifyAndSnapIntersection(p1Raw.x, p1Raw.y),
+        identifyAndSnapIntersection(p2Raw.x, p2Raw.y)
+      ];
+      redraw();
+
+      // 点1・点2をDBに永続化保存
+      saveStateToDB({ calibPoints: calibPoints });
     }
 
-    // 規定値フォールバック
     if (!detectedNumber && calibPoints.length === 2) {
       const pxDist = dist(calibPoints[0], calibPoints[1]);
       if (Math.abs(pxDist - 200) < 40) detectedNumber = "1820";
@@ -1173,7 +1243,6 @@
       }
     }
 
-    // UIの表示分岐
     if (calibPoints.length === 2) {
       closeMemoPanel();
       calibModal.style.display = 'block';
@@ -1216,6 +1285,7 @@
         calibNote.innerText = "図面の数値を入力 (例: 1820)";
         calibModal.style.display = 'block';
         calibInput.focus();
+        saveStateToDB({ calibPoints: calibPoints });
       }
     } else if (mode === 'polyline') {
       polylinePoints.push(ip);
@@ -1481,6 +1551,8 @@
       calibModal.style.display = 'none';
       setMode('polyline');
       statusMsg.innerText = `縮尺設定完了！「角タップ」または「なぞる」で計測できます`;
+      // 縮尺値を永続保存
+      saveStateToDB({ pixelsPerMeter: pixelsPerMeter, calibPoints: calibPoints });
     } else {
       if (calibPoints.length < 2) {
         alert("まだ寸法線の両端（点1・点2）が認識されていません。寸法線の直下を囲むか、両端を2点タップしてください。");
@@ -1613,10 +1685,55 @@
     }
   };
 
-  window.addEventListener('load', () => {
+  // --- 初期化 & リロード時の自動復元処理 ---
+  window.addEventListener('load', async () => {
     resizeCanvas();
-    loadSamplePlan();
     updateMemoView();
+
+    // IndexedDBからキャッシュされた図面を自動復元
+    statusMsg.innerText = "図面キャッシュを確認中...";
+    const savedDrawing = await getStateFromDB('currentDrawing');
+    const savedPPM = await getStateFromDB('pixelsPerMeter');
+    const savedCalibPoints = await getStateFromDB('calibPoints');
+
+    if (savedDrawing) {
+      if (savedDrawing.type === 'pdf') {
+        try {
+          if (!window.pdfjsLib) throw new Error("PDFライブラリ未読込");
+          pdfjsLib.GlobalWorkerOptions.workerSrc = false;
+          const loadingTask = pdfjsLib.getDocument({ data: savedDrawing.data, disableFontFace: false });
+          pdfDoc = await loadingTask.promise;
+          currentPdfPage = savedDrawing.page || 1;
+          pdfControls.style.display = 'flex';
+          await renderPdfPage(currentPdfPage);
+
+          if (savedPPM) pixelsPerMeter = savedPPM;
+          if (savedCalibPoints) calibPoints = savedCalibPoints;
+          redraw();
+          statusMsg.innerText = pixelsPerMeter ? "前回の図面と縮尺を復元しました" : "前回の図面を復元しました";
+          return;
+        } catch (e) {
+          console.warn('PDF復元失敗:', e);
+        }
+      } else if (savedDrawing.type === 'image') {
+        const img = new Image();
+        img.onload = () => {
+          currentDocSource = img;
+          imgLoaded = true;
+          resizeCanvas();
+          resetView();
+          if (savedPPM) pixelsPerMeter = savedPPM;
+          if (savedCalibPoints) calibPoints = savedCalibPoints;
+          redraw();
+          statusMsg.innerText = pixelsPerMeter ? "前回の図面と縮尺を復元しました" : "前回の図面を復元しました";
+        };
+        img.src = savedDrawing.data;
+        return;
+      }
+    }
+
+    // 保存図面がない場合はサンプル図面を読み込み
+    loadSamplePlan();
   });
 </script>
 </body>
