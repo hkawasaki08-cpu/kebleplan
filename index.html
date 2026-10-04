@@ -823,8 +823,9 @@
       ctx.restore();
     }
 
+    // 縮尺基準点（点1・点2）の描画（設定完了後も薄くガイド表示）
     calibPoints.forEach((p, idx) => {
-      ctx.fillStyle = '#ff1744';
+      ctx.fillStyle = (mode === 'calib') ? '#ff1744' : 'rgba(255, 23, 68, 0.7)';
       ctx.beginPath();
       ctx.arc(p.x, p.y, 8 / scale, 0, Math.PI * 2);
       ctx.fill();
@@ -838,7 +839,7 @@
     });
 
     if (calibPoints.length === 2) {
-      ctx.strokeStyle = '#ff1744';
+      ctx.strokeStyle = (mode === 'calib') ? '#ff1744' : 'rgba(255, 23, 68, 0.5)';
       ctx.lineWidth = 3 / scale;
       ctx.setLineDash([6 / scale, 4 / scale]);
       ctx.beginPath();
