@@ -844,18 +844,21 @@
     ctx.stroke();
   }
 
-  // --- 改良版：最遠端点（最外郭交点）捕捉エンジン ---
+  // --- 高精度アンカー型最外郭交点検出エンジン（広角マージン＋適応補正） ---
   async function processCalibBoxSelection(p1, p2) {
-    const margin = 20;
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
     const minY = Math.min(p1.y, p2.y);
     const maxY = Math.max(p1.y, p2.y);
 
-    const rx = Math.max(0, Math.floor(minX - margin));
-    const ry = Math.max(0, Math.floor(minY - margin));
-    const rw = Math.min(currentDocSource.width - rx, Math.ceil((maxX - minX) + margin * 2));
-    const rh = Math.min(currentDocSource.height - ry, Math.ceil((maxY - minY) + margin * 2));
+    // 指の囲みが少し狭い場合でも端点を取りこぼさないよう、水平方向に+60pxの広角マージン
+    const marginX = 60;
+    const marginY = 25;
+
+    const rx = Math.max(0, Math.floor(minX - marginX));
+    const ry = Math.max(0, Math.floor(minY - marginY));
+    const rw = Math.min(currentDocSource.width - rx, Math.ceil((maxX - minX) + marginX * 2));
+    const rh = Math.min(currentDocSource.height - ry, Math.ceil((maxY - minY) + marginY * 2));
 
     if (rw < 30 || rh < 15) {
       statusMsg.innerText = "範囲が狭すぎます。もう一度囲んでください";
@@ -873,6 +876,7 @@
     const imgData = cropCtx.getImageData(0, 0, rw, rh);
     const data = imgData.data;
 
+    // 二値化（薄いCADヘアラインも漏らさず取得）
     const bin = new Uint8Array(rw * rh);
     let redPixelCount = 0;
 
@@ -886,13 +890,13 @@
         if (r > 140 && g < 100 && b < 100) {
           bin[y * rw + x] = 2; // 赤色マーカー
           redPixelCount++;
-        } else if (r < 125 && g < 125 && b < 125) {
-          bin[y * rw + x] = 1; // 黒色線画
+        } else if (r < 155 && g < 155 && b < 155) {
+          bin[y * rw + x] = 1; // 黒色線画（細線対応）
         }
       }
     }
 
-    // 1. OCR（文字認識）による数値抽出 & 文字マスク
+    // 1. OCR（文字認識）による数値抽出 & 単語アンカー位置特定
     let detectedNumber = null;
     let textAnchor = null;
     const textMask = new Uint8Array(rw * rh);
@@ -986,7 +990,7 @@
       }
     }
 
-    // パターンB: 実際のCAD白黒図面（中間の通り芯をスキップし、囲み枠内の最外郭交点を捕捉）
+    // パターンB: 実際のCAD白黒図面
     if (!detectedP1 || !detectedP2) {
       const cleanLine = new Uint8Array(rw * rh);
       for (let i = 0; i < rw * rh; i++) {
@@ -995,7 +999,7 @@
         }
       }
 
-      // 1. 寸法文字アンカー付近を通る主寸法線（水平線）のY座標を特定
+      // 1. 主寸法線（水平線）の特定
       let baselineY = -1;
       let maxHLineRun = 0;
 
@@ -1017,45 +1021,53 @@
         baselineY = textAnchor ? Math.round(textAnchor.cy) : Math.round(rh / 2);
       }
 
-      // 2. 主寸法線の近傍（上下±6px）にある全ての縦目盛り交点を収集
+      // 2. 主寸法線近傍（上下±6px）の縦目盛り線・交差マークを収集
       const validIntersections = [];
-      for (let x = 6; x < rw - 6; x++) {
+      for (let x = 4; x < rw - 4; x++) {
         for (let dy = -5; dy <= 5; dy++) {
           const cy = baselineY + dy;
-          if (cy < 6 || cy >= rh - 6) continue;
+          if (cy < 5 || cy >= rh - 5) continue;
 
+          // 縦方向の連続線、または斜め目盛りスラッシュ（45度）の存在を検出
           let vRun = 0;
           for (let vy = -12; vy <= 12; vy++) {
             if (cy + vy >= 0 && cy + vy < rh && cleanLine[(cy + vy) * rw + x] === 1) vRun++;
           }
+          // 斜めスラッシュ目盛り（45度）の検出
+          let slashRun = 0;
+          for (let d = -6; d <= 6; d++) {
+            if (cy + d >= 0 && cy + d < rh && x + d >= 0 && x + d < rw) {
+              if (cleanLine[(cy + d) * rw + (x + d)] === 1) slashRun++;
+            }
+          }
 
-          if (vRun >= 7) {
+          if (vRun >= 6 || slashRun >= 6) {
             validIntersections.push({ x: rx + x, y: ry + cy, lx: x });
-            break; // 同じX列では1つ採用
+            break;
           }
         }
       }
 
       const textCenterX = textAnchor ? textAnchor.cx : rw / 2;
 
-      // 3. 中間の通り芯で止まらず、囲み枠内の最も外側（左端・右端）の交点を抽出
+      // 3. 文字アンカーから左右に最も離れた本物の「最外郭端点」を特定
       if (validIntersections.length >= 2) {
-        // 文字の左側にある交点群の中から「最も左（外側）」を選択
-        const leftCandidates = validIntersections.filter(p => p.lx < textCenterX - 15);
+        const leftCandidates = validIntersections.filter(p => p.lx < textCenterX - 20);
         if (leftCandidates.length > 0) {
           leftCandidates.sort((a, b) => a.lx - b.lx);
+          // 最も左端にある交点
           detectedP1 = { x: leftCandidates[0].x, y: leftCandidates[0].y };
         }
 
-        // 文字の右側にある交点群の中から「最も右（外側）」を選択
-        const rightCandidates = validIntersections.filter(p => p.lx > textCenterX + 15);
+        const rightCandidates = validIntersections.filter(p => p.lx > textCenterX + 20);
         if (rightCandidates.length > 0) {
           rightCandidates.sort((a, b) => b.lx - a.lx);
+          // 最も右端にある交点
           detectedP2 = { x: rightCandidates[0].x, y: rightCandidates[0].y };
         }
       }
 
-      // フォールバック（十字畳み込み）
+      // フォールバック
       if (!detectedP1 || !detectedP2) {
         const crossScore = new Float32Array(rw * rh);
         const span = 8;
