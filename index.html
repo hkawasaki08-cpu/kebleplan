@@ -6,8 +6,6 @@
   <title>間取り動線・距離計測ツール</title>
   <!-- PDF.js ライブラリ -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-  <!-- Tesseract.js (クライアント側文字認識/OCR) -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
   <style>
     * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     html, body {
@@ -149,7 +147,7 @@
 <body>
 
 <header id="appHeader">
-  <div class="app-title-ver">H M-r ver0.84</div>
+  <div class="app-title-ver">H M-r ver0.9</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -270,8 +268,8 @@
   let imgLoaded = false;
   let currentMeters = 0;
 
-  // --- IndexedDB ストレージ管理（軽量・安全） ---
-  const DB_NAME = 'KeblePlanDrawingDB_v3';
+  // --- IndexedDB ストレージ管理（完全軽量・安全） ---
+  const DB_NAME = 'KeblePlanDrawingDB_v4';
   const STORE_NAME = 'app_state';
 
   function openDB() {
@@ -293,9 +291,7 @@
       const db = await openDB();
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      for (const key in data) {
-        store.put(data[key], key);
-      }
+      for (const key in data) store.put(data[key], key);
     } catch (e) {}
   }
 
@@ -304,8 +300,7 @@
       const db = await openDB();
       return new Promise((resolve) => {
         const tx = db.transaction(STORE_NAME, 'readonly');
-        const store = tx.objectStore(STORE_NAME);
-        const req = store.get(key);
+        const req = tx.objectStore(STORE_NAME).get(key);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
       });
@@ -347,10 +342,6 @@
 
   let isInteractingUI = false;
 
-  let isCalibBoxDragging = false;
-  let calibBoxStart = null;
-  let calibBoxCurrent = null;
-
   // 再利用スクラッチCanvas
   let scratchCanvas = null;
   let scratchCtx = null;
@@ -388,6 +379,80 @@
     const gray = (r * 299 + g * 587 + b * 114) / 1000;
     if (gray < threshold) return 1; // 薄いグレー線
     return 0;
+  }
+
+  // --- タップ近傍スマートスナップ補正エンジン ---
+  // タップされた(gx, gy)の周囲半径Rを解析し、最も近い⚫️ / 十字交点 / 目盛りの中心へ自動吸着
+  function snapToNearbyPoint(gx, gy, searchR = 22) {
+    const minX = Math.max(0, Math.round(gx - searchR));
+    const minY = Math.max(0, Math.round(gy - searchR));
+    const sw = Math.min(currentDocSource.width - minX, searchR * 2);
+    const sh = Math.min(currentDocSource.height - minY, searchR * 2);
+    if (sw <= 4 || sh <= 4) return { x: gx, y: gy };
+
+    const imgData = getSafeImageData(minX, minY, sw, sh);
+    if (!imgData) return { x: gx, y: gy };
+    const data = imgData.data;
+
+    let redSumX = 0, redSumY = 0, redCount = 0;
+    let darkSumX = 0, darkSumY = 0, darkCount = 0;
+
+    for (let y = 0; y < sh; y++) {
+      for (let x = 0; x < sw; x++) {
+        const idx = (y * sw + x) * 4;
+        const pType = isDarkPixel(data[idx], data[idx + 1], data[idx + 2], 225);
+        if (pType === 2) {
+          redSumX += x; redSumY += y; redCount++;
+        } else if (pType === 1) {
+          darkSumX += x; darkSumY += y; darkCount++;
+        }
+      }
+    }
+
+    // 1. 赤丸・塗りつぶしマーカーの中心（重心）
+    if (redCount > 8) {
+      return { x: minX + Math.round(redSumX / redCount), y: minY + Math.round(redSumY / redCount) };
+    }
+
+    // 2. 十字交点（直交する水平線と垂直線の中心）
+    let bestX = Math.floor(sw / 2), bestY = Math.floor(sh / 2), maxCross = -1;
+    for (let y = 2; y < sh - 2; y++) {
+      for (let x = 2; x < sw - 2; x++) {
+        let hLine = 0, vLine = 0;
+        for (let d = -3; d <= 3; d++) {
+          const idxH = (y * sw + (x + d)) * 4;
+          const idxV = ((y + d) * sw + x) * 4;
+          if (isDarkPixel(data[idxH], data[idxH + 1], data[idxH + 2], 228)) hLine++;
+          if (isDarkPixel(data[idxV], data[idxV + 1], data[idxV + 2], 228)) vLine++;
+        }
+        // 斜めスラッシュ（45度）の検出
+        let slashLine = 0;
+        for (let d = -3; d <= 3; d++) {
+          if (y + d >= 0 && y + d < sh && x + d >= 0 && x + d < sw) {
+            const idxS = ((y + d) * sw + (x + d)) * 4;
+            if (isDarkPixel(data[idxS], data[idxS + 1], data[idxS + 2], 228)) slashLine++;
+          }
+        }
+
+        const score = Math.max(hLine * vLine, slashLine * 5);
+        if (score > maxCross) {
+          maxCross = score;
+          bestX = x;
+          bestY = y;
+        }
+      }
+    }
+
+    if (maxCross >= 6) {
+      return { x: minX + bestX, y: minY + bestY };
+    }
+
+    // 3. 局所重心フォールバック
+    if (darkCount > 0) {
+      return { x: minX + Math.round(darkSumX / darkCount), y: minY + Math.round(darkSumY / darkCount) };
+    }
+
+    return { x: gx, y: gy };
   }
 
   function closeMemoPanel() {
@@ -538,7 +603,7 @@
     resizeCanvas();
     resetView();
     setMode('calib');
-    statusMsg.innerText = "寸法値（1820等）または水平線を囲んでください";
+    statusMsg.innerText = "【縮尺設定】寸法線の両端付近をタップ（自動で中央に吸着）";
   }
 
   document.getElementById('btnLoadSample').onclick = loadSamplePlan;
@@ -618,7 +683,7 @@
     try {
       const page = await pdfDoc.getPage(pageNumber);
       const unscaledViewport = page.getViewport({ scale: 1.0 });
-      // iOS Safari制限対策: 最大2000pxに抑えてメモリクラッシュ物理防止
+      // iOS Safari制限対策: 最大2000pxに抑えてメモリ完全安全化
       const maxDim = 2000;
       const fitScale = Math.min(1.6, maxDim / Math.max(unscaledViewport.width, unscaledViewport.height));
       const viewport = page.getViewport({ scale: fitScale });
@@ -679,10 +744,7 @@
     if (m === 'calib') {
       closeMemoPanel();
       calibPoints = [];
-      isCalibBoxDragging = false;
-      calibBoxStart = null;
-      calibBoxCurrent = null;
-      statusMsg.innerText = "【縮尺設定】寸法値や水平線を囲むか、端点を2点タップ";
+      statusMsg.innerText = "【縮尺設定】寸法線の「始点」付近をタップ（自動で中央に吸着）";
     } else if (m === 'polyline') {
       statusMsg.innerText = pixelsPerMeter 
         ? "【角タップ】曲がり角をタップして動線を計測" 
@@ -716,9 +778,9 @@
         calibPoints.pop();
         redraw();
         if (calibPoints.length === 1) {
-          statusMsg.innerText = "寸法線の「終点」をタップ";
+          statusMsg.innerText = "寸法線の「終点」付近をタップ";
         } else {
-          statusMsg.innerText = "【縮尺設定】寸法値や水平線を囲むか、端点を2点タップ";
+          statusMsg.innerText = "【縮尺設定】寸法線の「始点」付近をタップ（自動で中央に吸着）";
         }
       }
     } else if (mode === 'polyline') {
@@ -874,23 +936,6 @@
 
     ctx.drawImage(currentDocSource, 0, 0);
 
-    // 水色囲み（ドラッグ中）の描画
-    if (isCalibBoxDragging && calibBoxStart && calibBoxCurrent) {
-      const bx = Math.min(calibBoxStart.x, calibBoxCurrent.x);
-      const by = Math.min(calibBoxStart.y, calibBoxCurrent.y);
-      const bw = Math.abs(calibBoxCurrent.x - calibBoxStart.x);
-      const bh = Math.abs(calibBoxCurrent.y - calibBoxStart.y);
-
-      ctx.save();
-      ctx.fillStyle = 'rgba(3, 169, 244, 0.18)';
-      ctx.fillRect(bx, by, bw, bh);
-      ctx.strokeStyle = '#0288d1';
-      ctx.lineWidth = 3 / scale;
-      ctx.setLineDash([6 / scale, 4 / scale]);
-      ctx.strokeRect(bx, by, bw, bh);
-      ctx.restore();
-    }
-
     // 縮尺基準点（点1・点2）の描画
     calibPoints.forEach((p, idx) => {
       ctx.fillStyle = (mode === 'calib') ? '#ff1744' : 'rgba(255, 23, 68, 0.7)';
@@ -951,259 +996,7 @@
     ctx.stroke();
   }
 
-  // --- 改良版：Y座標完全固定・水平線交点吸着エンジン（斜め飛び防止） ---
-  function snapXOnBaseline(gx, targetY, searchW = 12) {
-    const minX = Math.max(0, gx - searchW);
-    const sw = Math.min(currentDocSource.width - minX, searchW * 2);
-    const sh = 10;
-    const sy = Math.max(0, targetY - 5);
-    if (sw <= 4) return gx;
-
-    const imgData = getSafeImageData(minX, sy, sw, sh);
-    if (!imgData) return gx;
-    const data = imgData.data;
-
-    let bestX = gx;
-    let maxVScore = -1;
-
-    for (let lx = 0; lx < sw; lx++) {
-      let vRun = 0;
-      for (let ly = 0; ly < sh; ly++) {
-        const idx = (ly * sw + lx) * 4;
-        if (isDarkPixel(data[idx], data[idx + 1], data[idx + 2], 228)) vRun++;
-      }
-      if (vRun > maxVScore) {
-        maxVScore = vRun;
-        bestX = minX + lx;
-      }
-    }
-    return maxVScore >= 4 ? bestX : gx;
-  }
-
-  // --- 改良版：ブロック式ストリーミング探索（Y座標ロック＆超軽量OCR） ---
-  async function processCalibBoxSelection(p1, p2) {
-    const minX = Math.min(p1.x, p2.x);
-    const maxX = Math.max(p1.x, p2.x);
-    const minY = Math.min(p1.y, p2.y);
-    const maxY = Math.max(p1.y, p2.y);
-
-    const rw = Math.max(15, Math.ceil(maxX - minX));
-    const rh = Math.max(10, Math.ceil(maxY - minY));
-
-    statusMsg.innerText = "🔍 選択範囲を解析中...";
-
-    // 1. 超軽量OCR（メモリ制限対策：最大200x60に制限）
-    let detectedNumber = null;
-    let textBBox = null;
-
-    try {
-      if (window.Tesseract && rw <= 300 && rh <= 120) {
-        const scaleDown = Math.min(1.0, 180 / rw);
-        const ocrW = Math.round(rw * scaleDown);
-        const ocrH = Math.round(rh * scaleDown);
-
-        const { canvas: sc, ctx: sctx } = getScratchContext(ocrW, ocrH);
-        sctx.clearRect(0, 0, ocrW, ocrH);
-        sctx.drawImage(currentDocSource, minX, minY, rw, rh, 0, 0, ocrW, ocrH);
-
-        const { data: { text } } = await Tesseract.recognize(sc, 'eng', {
-          tessedit_char_whitelist: '0123456789'
-        });
-        const matches = (text || "").match(/\d{3,6}/g);
-        if (matches && matches.length > 0) {
-          matches.sort((a, b) => b.length - a.length);
-          detectedNumber = matches[0];
-          textBBox = {
-            x0: minX, x1: maxX,
-            y0: minY, y1: maxY,
-            h: rh
-          };
-        }
-      }
-    } catch (err) {
-      console.warn("OCRスキップ:", err);
-    }
-
-    if (detectedNumber) {
-      calibInput.value = detectedNumber;
-      calibNote.innerText = `自動読取: ${detectedNumber} mm（変更可能）`;
-    }
-
-    // 2. 水平ライン（主寸法線）の特定
-    let bestBaselineY = -1;
-
-    // パターン1: 囲み枠そのものに水平線が含まれているか
-    const boxData = getSafeImageData(minX, minY, rw, rh);
-    if (boxData) {
-      let maxRowDark = 0;
-      let peakRowY = -1;
-      for (let y = 0; y < rh; y++) {
-        let count = 0;
-        for (let x = 0; x < rw; x++) {
-          const idx = (y * rw + x) * 4;
-          if (isDarkPixel(boxData.data[idx], boxData.data[idx + 1], boxData.data[idx + 2], 230)) count++;
-        }
-        if (count > maxRowDark) {
-          maxRowDark = count;
-          peakRowY = y;
-        }
-      }
-      if (maxRowDark >= rw * 0.20 && peakRowY !== -1) {
-        bestBaselineY = minY + peakRowY;
-      }
-    }
-
-    // パターン2: 文字認識時、文字の「直下（文字下端から0.2H〜0.65H）」を探す
-    if (bestBaselineY === -1 && textBBox) {
-      const textH = textBBox.h;
-      const textCenterX = (textBBox.x0 + textBBox.x1) / 2;
-      const scanW = Math.max(rw * 2, 220);
-      const scanX = Math.max(0, Math.round(textCenterX - scanW / 2));
-
-      const bandTop = Math.round(textBBox.y1 + textH * 0.18);
-      const bandBottom = Math.round(textBBox.y1 + textH * 0.65);
-      const bandH = Math.max(8, bandBottom - bandTop);
-
-      const bData = getSafeImageData(scanX, bandTop, scanW, bandH);
-      if (bData) {
-        let maxLineScore = 0;
-        for (let y = 1; y < bandH - 1; y++) {
-          let run = 0;
-          for (let x = 0; x < scanW; x++) {
-            const idx = (y * scanW + x) * 4;
-            if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 232)) run++;
-          }
-          if (run > maxLineScore && run > scanW * 0.15) {
-            maxLineScore = run;
-            bestBaselineY = bandTop + y;
-          }
-        }
-      }
-    }
-
-    // 3. 水平ラインが存在する場合 ➜ Y座標を完全固定して左右走査（斜め飛び完全防止）
-    if (bestBaselineY !== -1) {
-      statusMsg.innerText = "🔍 水平線上の交点を認識中...";
-
-      const scanCenterX = textBBox ? (textBBox.x0 + textBBox.x1) / 2 : (minX + maxX) / 2;
-      const stripH = 12; // 高さわずか12pxのみ走査（上下の円などに絶対に触れない）
-      const stripStartY = Math.max(0, bestBaselineY - 6);
-      const blockSize = 120;
-
-      let p1X = null;
-      let p2X = null;
-
-      // 左方向ブロック探索
-      let curX = Math.round(scanCenterX - 15);
-      let gapCount = 0;
-      while (curX > 10 && !p1X && gapCount < 3) {
-        const blockW = Math.min(blockSize, curX);
-        const startBx = curX - blockW;
-        const bData = getSafeImageData(startBx, stripStartY, blockW, stripH);
-        if (!bData) break;
-
-        let hasHInBlock = false;
-        for (let lx = blockW - 1; lx >= 0; lx--) {
-          let vScore = 0;
-          for (let ly = 0; ly < stripH; ly++) {
-            const idx = (ly * blockW + lx) * 4;
-            if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 228)) vScore++;
-          }
-          let hPresent = false;
-          for (let dy = -1; dy <= 1; dy++) {
-            const cy = 6 + dy;
-            if (cy >= 0 && cy < stripH) {
-              const idx = (cy * blockW + lx) * 4;
-              if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 230)) { hPresent = true; break; }
-            }
-          }
-          if (hPresent) hasHInBlock = true;
-
-          if (vScore >= 6) {
-            p1X = startBx + lx;
-            break;
-          }
-        }
-        if (!hasHInBlock) gapCount++;
-        else gapCount = 0;
-
-        curX -= blockW;
-      }
-
-      // 右方向ブロック探索
-      curX = Math.round(scanCenterX + 15);
-      gapCount = 0;
-      while (curX < currentDocSource.width - 10 && !p2X && gapCount < 3) {
-        const blockW = Math.min(blockSize, currentDocSource.width - curX);
-        const bData = getSafeImageData(curX, stripStartY, blockW, stripH);
-        if (!bData) break;
-
-        let hasHInBlock = false;
-        for (let lx = 0; lx < blockW; lx++) {
-          let vScore = 0;
-          for (let ly = 0; ly < stripH; ly++) {
-            const idx = (ly * blockW + lx) * 4;
-            if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 228)) vScore++;
-          }
-          let hPresent = false;
-          for (let dy = -1; dy <= 1; dy++) {
-            const cy = 6 + dy;
-            if (cy >= 0 && cy < stripH) {
-              const idx = (cy * blockW + lx) * 4;
-              if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 230)) { hPresent = true; break; }
-            }
-          }
-          if (hPresent) hasHInBlock = true;
-
-          if (vScore >= 6) {
-            p2X = curX + lx;
-            break;
-          }
-        }
-        if (!hasHInBlock) gapCount++;
-        else gapCount = 0;
-
-        curX += blockW;
-      }
-
-      const finalX1 = snapXOnBaseline(p1X || minX, bestBaselineY);
-      const finalX2 = snapXOnBaseline(p2X || maxX, bestBaselineY);
-
-      // ★★★ Y座標は完全に同一の水平線（bestBaselineY）に固定 ★★★
-      calibPoints = [
-        { x: finalX1, y: bestBaselineY },
-        { x: finalX2, y: bestBaselineY }
-      ];
-      redraw();
-
-      saveStateToDB({ calibPoints: calibPoints });
-    }
-
-    if (!detectedNumber && calibPoints.length === 2) {
-      const pxDist = dist(calibPoints[0], calibPoints[1]);
-      if (Math.abs(pxDist - 200) < 40) detectedNumber = "1820";
-      else if (Math.abs(pxDist - 400) < 60) detectedNumber = "3640";
-      else if (Math.abs(pxDist - 450) < 70) detectedNumber = "5000";
-      if (detectedNumber) {
-        calibInput.value = detectedNumber;
-        calibNote.innerText = `自動読取: ${detectedNumber} mm（変更可能）`;
-      }
-    }
-
-    if (calibPoints.length === 2) {
-      closeMemoPanel();
-      calibModal.style.display = 'block';
-      calibInput.focus();
-      statusMsg.innerText = "水平寸法線の両端に点打ちしました。「決定」を押してください";
-    } else if (detectedNumber) {
-      calibModal.style.display = 'none';
-      statusMsg.innerText = `寸法値: ${detectedNumber} mm を認識！続けて直下の「水平線」を囲んでください`;
-    } else {
-      statusMsg.innerText = "寸法線または数値を囲むか、端点を2点タップしてください";
-    }
-  }
-
-  // --- タッチ & マウス入力判定 ---
+  // --- タッチ & マウス入力判定（スマートスナップ連動） ---
   let isPinching = false;
   let pinchStartDist = 0;
   let pinchStartScale = 1.0;
@@ -1218,24 +1011,37 @@
   function triggerTapAction(clientX, clientY) {
     if (!imgLoaded || isInteractingUI) return;
     const rect = canvas.getBoundingClientRect();
-    const ip = toImgCoords(clientX - rect.left, clientY - rect.top);
+    const rawIp = toImgCoords(clientX - rect.left, clientY - rect.top);
 
     if (mode === 'calib') {
       if (calibPoints.length >= 2 || calibModal.style.display === 'block') return;
-      calibPoints.push(ip);
+
+      // タップした近傍の⚫️や交点へ自動吸着補正
+      const snappedPt = snapToNearbyPoint(rawIp.x, rawIp.y);
+      calibPoints.push(snappedPt);
       redraw();
+
       if (calibPoints.length === 1) {
-        statusMsg.innerText = "寸法線の「終点」をタップ";
+        statusMsg.innerText = "点1決定！次に「終点」付近をタップしてください";
       } else if (calibPoints.length === 2) {
         closeMemoPanel();
-        statusMsg.innerText = "右上で数値を入力してください";
-        calibNote.innerText = "図面の数値を入力 (例: 1820)";
+
+        // 規定サジェスト値の計算
+        const pxLen = dist(calibPoints[0], calibPoints[1]);
+        if (Math.abs(pxLen - 200) < 40) calibInput.value = "1820";
+        else if (Math.abs(pxLen - 400) < 60) calibInput.value = "3640";
+        else if (Math.abs(pxLen - 450) < 70) calibInput.value = "5000";
+
+        calibNote.innerText = "図面の数値を入力 (例: 12300)";
         calibModal.style.display = 'block';
         calibInput.focus();
+        statusMsg.innerText = "両端交点に吸着しました。長さを入力して「決定」を押してください";
         saveStateToDB({ calibPoints: calibPoints });
       }
     } else if (mode === 'polyline') {
-      polylinePoints.push(ip);
+      // 角タップ時も近傍交点へ自動スナップ
+      const snappedPt = snapToNearbyPoint(rawIp.x, rawIp.y, 14);
+      polylinePoints.push(snappedPt);
       redraw();
       if (pixelsPerMeter && polylinePoints.length >= 2) {
         const px = calculateLength(polylinePoints);
@@ -1255,17 +1061,9 @@
   }
 
   function handleMoveAt(clientX, clientY) {
-    if (!imgLoaded || isInteractingUI) return;
+    if (!imgLoaded || isInteractingUI || !isFreehandDrawing || mode !== 'measure') return;
     const rect = canvas.getBoundingClientRect();
     const curImgPos = toImgCoords(clientX - rect.left, clientY - rect.top);
-
-    if (mode === 'calib' && isCalibBoxDragging) {
-      calibBoxCurrent = curImgPos;
-      redraw();
-      return;
-    }
-
-    if (!isFreehandDrawing || mode !== 'measure') return;
 
     const rawPos = curImgPos;
     const last = currentStroke[currentStroke.length - 1];
@@ -1289,17 +1087,6 @@
   }
 
   function handleEnd() {
-    if (mode === 'calib' && isCalibBoxDragging) {
-      isCalibBoxDragging = false;
-      if (calibBoxStart && calibBoxCurrent && dist(calibBoxStart, calibBoxCurrent) > 15 / scale) {
-        processCalibBoxSelection(calibBoxStart, calibBoxCurrent);
-      }
-      calibBoxStart = null;
-      calibBoxCurrent = null;
-      redraw();
-      return;
-    }
-
     if (!isFreehandDrawing) return;
     isFreehandDrawing = false;
     if (currentStroke.length > 1) {
@@ -1331,7 +1118,6 @@
       pendingTapTimer = null;
       isFreehandDrawing = false;
       currentStroke = [];
-      isCalibBoxDragging = false;
       isPinching = true;
 
       const t1 = e.touches[0];
@@ -1360,10 +1146,6 @@
             startFreehand(t.clientX, t.clientY);
           }
         }, 60);
-      } else if (mode === 'calib') {
-        const rect = canvas.getBoundingClientRect();
-        calibBoxStart = toImgCoords(t.clientX - rect.left, t.clientY - rect.top);
-        calibBoxCurrent = calibBoxStart;
       }
     }
   }, { passive: false });
@@ -1397,12 +1179,7 @@
     if (e.touches.length === 1 && !isInteractingUI) {
       const t = e.touches[0];
       const moveDist = Math.hypot(t.clientX - touchStartPos.x, t.clientY - touchStartPos.y);
-      if (moveDist > 8) {
-        isTouchMoved = true;
-        if (mode === 'calib' && !isCalibBoxDragging && calibModal.style.display !== 'block') {
-          isCalibBoxDragging = true;
-        }
-      }
+      if (moveDist > 8) isTouchMoved = true;
       handleMoveAt(t.clientX, t.clientY);
     }
   }, { passive: false });
@@ -1439,15 +1216,7 @@
     if (e.button === 0) {
       touchStartPos = { x: e.clientX, y: e.clientY };
       isMouseMoved = false;
-      const rect = canvas.getBoundingClientRect();
-      const imgPos = toImgCoords(e.clientX - rect.left, e.clientY - rect.top);
-
-      if (mode === 'measure') {
-        startFreehand(e.clientX, e.clientY);
-      } else if (mode === 'calib') {
-        calibBoxStart = imgPos;
-        calibBoxCurrent = imgPos;
-      }
+      if (mode === 'measure') startFreehand(e.clientX, e.clientY);
     } else if (e.button === 2 || e.button === 1) {
       isMouseRightDown = true;
       lastMouse = { x: e.clientX, y: e.clientY };
@@ -1462,12 +1231,7 @@
       redraw();
     } else if (!isInteractingUI) {
       const mDist = Math.hypot(e.clientX - touchStartPos.x, e.clientY - touchStartPos.y);
-      if (mDist > 6) {
-        isMouseMoved = true;
-        if (mode === 'calib' && !isCalibBoxDragging && calibModal.style.display !== 'block') {
-          isCalibBoxDragging = true;
-        }
-      }
+      if (mDist > 6) isMouseMoved = true;
       handleMoveAt(e.clientX, e.clientY);
     }
   });
@@ -1501,7 +1265,7 @@
       saveStateToDB({ pixelsPerMeter: pixelsPerMeter, calibPoints: calibPoints });
     } else {
       if (calibPoints.length < 2) {
-        alert("まだ寸法線の両端（点1・点2）が認識されていません。寸法線の直下を囲むか、両端を2点タップしてください。");
+        alert("まだ寸法線の両端（点1・点2）がタップされていません。両端をタップしてください。");
       } else {
         alert("数値を入力してください（例: 1820）");
       }
