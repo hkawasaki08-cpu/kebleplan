@@ -845,7 +845,7 @@
     ctx.stroke();
   }
 
-  // --- 自動交点検出 & 寸法数値OCR解析ロジック ---
+  // --- 高精度交点検出（文字ノイズ除去＋十字交差スナップ）ロジック ---
   async function processCalibBoxSelection(p1, p2) {
     const rx = Math.max(0, Math.floor(Math.min(p1.x, p2.x)));
     const ry = Math.max(0, Math.floor(Math.min(p1.y, p2.y)));
@@ -857,7 +857,7 @@
       return;
     }
 
-    statusMsg.innerText = "🔍 寸法線・数値を解析中...";
+    statusMsg.innerText = "🔍 寸法線交点と数値を高精度解析中...";
 
     // オフスクリーンCanvasに切り出し
     const cropCanvas = document.createElement('canvas');
@@ -869,9 +869,9 @@
     const imgData = cropCtx.getImageData(0, 0, rw, rh);
     const data = imgData.data;
 
-    // 1. 寸法線の端点・交点検出（赤色マーカーまたは濃い黒色エッジの左右端点）
-    let redCandidates = [];
-    let darkCandidates = [];
+    // 二値化バッファ (0: 背景/文字などの非線形ノイズ, 1: 有力な線画・マーカー)
+    const bin = new Uint8Array(rw * rh);
+    let redCount = 0;
 
     for (let y = 0; y < rh; y++) {
       for (let x = 0; x < rw; x++) {
@@ -880,13 +880,13 @@
         const g = data[idx + 1];
         const b = data[idx + 2];
 
-        // 赤色強調画素の検出
-        if (r > 150 && g < 100 && b < 100) {
-          redCandidates.push({ x: rx + x, y: ry + y });
-        }
-        // 濃い線画画素の検出
-        if (r < 80 && g < 80 && b < 80) {
-          darkCandidates.push({ x: rx + x, y: ry + y });
+        // 赤色強調（サンプル図面等のカラーマーカー判定）
+        if (r > 140 && g < 100 && b < 100) {
+          bin[y * rw + x] = 2; // 赤マーカー
+          redCount++;
+        } else if (r < 110 && g < 110 && b < 110) {
+          // 一般CAD図面の黒線
+          bin[y * rw + x] = 1;
         }
       }
     }
@@ -894,35 +894,131 @@
     let detectedP1 = null;
     let detectedP2 = null;
 
-    if (redCandidates.length > 30) {
-      // 赤色マーカーがある場合（サンプル図面など）
-      redCandidates.sort((a, b) => a.x - b.x);
-      const leftCluster = redCandidates.slice(0, Math.floor(redCandidates.length * 0.25));
-      const rightCluster = redCandidates.slice(Math.floor(redCandidates.length * 0.75));
+    // パターンA: 赤色マーカーがある場合（線に引っ張られない円形密度中心法）
+    if (redCount > 35) {
+      let redPts = [];
+      for (let y = 0; y < rh; y++) {
+        for (let x = 0; x < rw; x++) {
+          if (bin[y * rw + x] === 2) {
+            redPts.push({ x: rx + x, y: ry + y, lx: x, ly: y });
+          }
+        }
+      }
+      redPts.sort((a, b) => a.x - b.x);
+      const midIdx = Math.floor(redPts.length / 2);
+      const clusterL = redPts.slice(0, midIdx);
+      const clusterR = redPts.slice(midIdx);
 
-      const avgL = leftCluster.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
-      const avgR = rightCluster.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+      // 各クラスタで「周囲密度が最大（＝円の真の中心）」を探索
+      const findDenseCenter = (cluster) => {
+        let maxNeighbors = -1;
+        let bestPt = cluster[0];
+        const rad = 4;
+        cluster.forEach(p => {
+          let n = 0;
+          for (let dy = -rad; dy <= rad; dy++) {
+            for (let dx = -rad; dx <= rad; dx++) {
+              const ny = p.ly + dy;
+              const nx = p.lx + dx;
+              if (nx >= 0 && nx < rw && ny >= 0 && ny < rh && bin[ny * rw + nx] === 2) {
+                n++;
+              }
+            }
+          }
+          if (n > maxNeighbors) {
+            maxNeighbors = n;
+            bestPt = p;
+          }
+        });
+        return { x: bestPt.x, y: bestPt.y };
+      };
 
-      detectedP1 = { x: avgL.x / leftCluster.length, y: avgL.y / leftCluster.length };
-      detectedP2 = { x: avgR.x / rightCluster.length, y: avgR.y / rightCluster.length };
-    } else if (darkCandidates.length > 50) {
-      // 一般的な図面の黒色線画・交点の場合：左右のピーク点
-      darkCandidates.sort((a, b) => a.x - b.x);
-      const leftPoint = darkCandidates[0];
-      const rightPoint = darkCandidates[darkCandidates.length - 1];
+      detectedP1 = findDenseCenter(clusterL);
+      detectedP2 = findDenseCenter(clusterR);
+    } else {
+      // パターンB: 実際のCAD白黒図面（水平・垂直線の直交交点スナップ）
+      // 1. 水平方向・垂直方向に連続する線だけを抽出（文字ノイズを消去）
+      const hLine = new Uint8Array(rw * rh);
+      const vLine = new Uint8Array(rw * rh);
 
-      // Y軸の急激な外れ値を除外した代表点
-      detectedP1 = { x: leftPoint.x, y: leftPoint.y };
-      detectedP2 = { x: rightPoint.x, y: rightPoint.y };
+      // 水平線の検出（横に7px以上連続）
+      for (let y = 0; y < rh; y++) {
+        let run = 0;
+        for (let x = 0; x < rw; x++) {
+          if (bin[y * rw + x] === 1) {
+            run++;
+          } else {
+            if (run >= 7) {
+              for (let k = x - run; k < x; k++) hLine[y * rw + k] = 1;
+            }
+            run = 0;
+          }
+        }
+        if (run >= 7) {
+          for (let k = rw - run; k < rw; k++) hLine[y * rw + k] = 1;
+        }
+      }
+
+      // 垂直線の検出（縦に7px以上連続）
+      for (let x = 0; x < rw; x++) {
+        let run = 0;
+        for (let y = 0; y < rh; y++) {
+          if (bin[y * rw + x] === 1) {
+            run++;
+          } else {
+            if (run >= 7) {
+              for (let k = y - run; k < y; k++) vLine[k * rw + x] = 1;
+            }
+            run = 0;
+          }
+        }
+        if (run >= 7) {
+          for (let k = rh - run; k < rh; k++) vLine[k * rw + x] = 1;
+        }
+      }
+
+      // 2. 十字交点（水平線と垂直線の直交・交差領域）の候補点を収集
+      const intersections = [];
+      for (let y = 2; y < rh - 2; y++) {
+        for (let x = 2; x < rw - 2; x++) {
+          // 交点判定: 自点または近傍で水平成分と垂直成分が共に存在
+          let hasH = false;
+          let hasV = false;
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              if (hLine[(y + dy) * rw + (x + dx)]) hasH = true;
+              if (vLine[(y + dy) * rw + (x + dx)]) hasV = true;
+            }
+          }
+          if (hasH && hasV) {
+            intersections.push({ x: rx + x, y: ry + y, lx: x });
+          }
+        }
+      }
+
+      if (intersections.length > 0) {
+        intersections.sort((a, b) => a.lx - b.lx);
+        const midIdx = Math.floor(intersections.length / 2);
+        const leftGroup = intersections.slice(0, midIdx);
+        const rightGroup = intersections.slice(midIdx);
+
+        if (leftGroup.length > 0 && rightGroup.length > 0) {
+          const avgL = leftGroup.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+          const avgR = rightGroup.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+          detectedP1 = { x: Math.round(avgL.x / leftGroup.length), y: Math.round(avgL.y / leftGroup.length) };
+          detectedP2 = { x: Math.round(avgR.x / rightGroup.length), y: Math.round(avgR.y / rightGroup.length) };
+        }
+      }
     }
 
-    if (detectedP1 && detectedP2 && dist(detectedP1, detectedP2) > 15) {
+    // 検出結果の適用（安全ガード付き）
+    if (detectedP1 && detectedP2 && dist(detectedP1, detectedP2) > 20) {
       calibPoints = [detectedP1, detectedP2];
     } else {
-      // 検出が難しい場合は囲み枠の中心左右70%を配置
+      // 交点が特定できない場合のフォールバック（ドラッグ枠の左右中点）
       calibPoints = [
-        { x: rx + rw * 0.15, y: ry + rh * 0.5 },
-        { x: rx + rw * 0.85, y: ry + rh * 0.5 }
+        { x: rx + rw * 0.1, y: ry + rh * 0.5 },
+        { x: rx + rw * 0.9, y: ry + rh * 0.5 }
       ];
     }
     redraw();
@@ -934,8 +1030,10 @@
         const { data: { text } } = await Tesseract.recognize(cropCanvas, 'eng', {
           tessedit_char_whitelist: '0123456789'
         });
-        const matches = text.match(/\d{3,5}/g);
+        const matches = text.match(/\d{3,6}/g);
         if (matches && matches.length > 0) {
+          // 最も桁数の多い（妥当な）数値を採用
+          matches.sort((a, b) => b.length - a.length);
           detectedNumber = matches[0];
         }
       }
@@ -961,7 +1059,7 @@
     closeMemoPanel();
     calibModal.style.display = 'block';
     calibInput.focus();
-    statusMsg.innerText = "寸法線と数値を認識しました。確認して「決定」を押してください";
+    statusMsg.innerText = "寸法交点と数値を高精度認識しました。「決定」を押してください";
   }
 
   // --- タッチ & マウス入力判定 ---
