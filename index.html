@@ -149,7 +149,7 @@
 <body>
 
 <header id="appHeader">
-  <div class="app-title-ver">H M-r ver0.83</div>
+  <div class="app-title-ver">H M-r ver0.84</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -271,7 +271,7 @@
   let currentMeters = 0;
 
   // --- IndexedDB ストレージ管理（軽量・安全） ---
-  const DB_NAME = 'KeblePlanDrawingDB_v2';
+  const DB_NAME = 'KeblePlanDrawingDB_v3';
   const STORE_NAME = 'app_state';
 
   function openDB() {
@@ -350,24 +350,6 @@
   let isCalibBoxDragging = false;
   let calibBoxStart = null;
   let calibBoxCurrent = null;
-
-  // Tesseract シングルトン管理（メモリ枯渇防止）
-  let tesseractWorker = null;
-  async function getOCRWorker() {
-    if (!tesseractWorker && window.Tesseract) {
-      tesseractWorker = await Tesseract.createWorker({
-        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
-        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',
-        logger: () => {}
-      });
-      await tesseractWorker.loadLanguage('eng');
-      await tesseractWorker.initialize('eng');
-      await tesseractWorker.setParameters({
-        tessedit_char_whitelist: '0123456789'
-      });
-    }
-    return tesseractWorker;
-  }
 
   // 再利用スクラッチCanvas
   let scratchCanvas = null;
@@ -636,9 +618,9 @@
     try {
       const page = await pdfDoc.getPage(pageNumber);
       const unscaledViewport = page.getViewport({ scale: 1.0 });
-      // iOS Safari制限対策: 最大2200pxに抑えてメモリクラッシュ物理防止
-      const maxDim = 2200;
-      const fitScale = Math.min(1.8, maxDim / Math.max(unscaledViewport.width, unscaledViewport.height));
+      // iOS Safari制限対策: 最大2000pxに抑えてメモリクラッシュ物理防止
+      const maxDim = 2000;
+      const fitScale = Math.min(1.6, maxDim / Math.max(unscaledViewport.width, unscaledViewport.height));
       const viewport = page.getViewport({ scale: fitScale });
 
       const pdfCanvas = document.createElement('canvas');
@@ -969,70 +951,36 @@
     ctx.stroke();
   }
 
-  // --- 交点形状認識エンジン（⚫️ / 十字 / 十字＋◯ を識別して中心にスナップ） ---
-  function identifyAndSnapIntersection(gx, gy, searchW = 16) {
+  // --- 改良版：Y座標完全固定・水平線交点吸着エンジン（斜め飛び防止） ---
+  function snapXOnBaseline(gx, targetY, searchW = 12) {
     const minX = Math.max(0, gx - searchW);
-    const minY = Math.max(0, gy - searchW);
     const sw = Math.min(currentDocSource.width - minX, searchW * 2);
-    const sh = Math.min(currentDocSource.height - minY, searchW * 2);
-    if (sw <= 4 || sh <= 4) return { x: gx, y: gy };
+    const sh = 10;
+    const sy = Math.max(0, targetY - 5);
+    if (sw <= 4) return gx;
 
-    const imgData = getSafeImageData(minX, minY, sw, sh);
-    if (!imgData) return { x: gx, y: gy };
+    const imgData = getSafeImageData(minX, sy, sw, sh);
+    if (!imgData) return gx;
     const data = imgData.data;
 
-    let redSumX = 0, redSumY = 0, redCount = 0;
-    let darkSumX = 0, darkSumY = 0, darkCount = 0;
+    let bestX = gx;
+    let maxVScore = -1;
 
-    for (let y = 0; y < sh; y++) {
-      for (let x = 0; x < sw; x++) {
-        const idx = (y * sw + x) * 4;
-        const pType = isDarkPixel(data[idx], data[idx + 1], data[idx + 2], 225);
-        if (pType === 2) {
-          redSumX += x; redSumY += y; redCount++;
-        } else if (pType === 1) {
-          darkSumX += x; darkSumY += y; darkCount++;
-        }
+    for (let lx = 0; lx < sw; lx++) {
+      let vRun = 0;
+      for (let ly = 0; ly < sh; ly++) {
+        const idx = (ly * sw + lx) * 4;
+        if (isDarkPixel(data[idx], data[idx + 1], data[idx + 2], 228)) vRun++;
+      }
+      if (vRun > maxVScore) {
+        maxVScore = vRun;
+        bestX = minX + lx;
       }
     }
-
-    // 形状1: ⚫️ (赤丸・黒丸塗りつぶしマーカー)
-    if (redCount > 10) {
-      return { x: minX + Math.round(redSumX / redCount), y: minY + Math.round(redSumY / redCount) };
-    }
-
-    // 形状2: 十字 または 十字+◯ (中心交点)
-    let bestX = Math.floor(sw / 2), bestY = Math.floor(sh / 2), maxCross = -1;
-    for (let y = 3; y < sh - 3; y++) {
-      for (let x = 3; x < sw - 3; x++) {
-        let hLine = 0, vLine = 0;
-        for (let d = -3; d <= 3; d++) {
-          const idxH = (y * sw + (x + d)) * 4;
-          const idxV = ((y + d) * sw + x) * 4;
-          if (isDarkPixel(data[idxH], data[idxH + 1], data[idxH + 2], 225)) hLine++;
-          if (isDarkPixel(data[idxV], data[idxV + 1], data[idxV + 2], 225)) vLine++;
-        }
-        const score = hLine * vLine;
-        if (score > maxCross) {
-          maxCross = score;
-          bestX = x;
-          bestY = y;
-        }
-      }
-    }
-
-    if (maxCross >= 8) {
-      return { x: minX + bestX, y: minY + bestY };
-    }
-
-    // 形状3: 重心フォールバック
-    if (darkCount > 0) {
-      return { x: minX + Math.round(darkSumX / darkCount), y: minY + Math.round(darkSumY / darkCount) };
-    }
-    return { x: gx, y: gy };
+    return maxVScore >= 4 ? bestX : gx;
   }
 
-  // --- 改良版：ブロック式ストリーミング探索（メモリクラッシュ＆文字内部誤認の完全排除） ---
+  // --- 改良版：ブロック式ストリーミング探索（Y座標ロック＆超軽量OCR） ---
   async function processCalibBoxSelection(p1, p2) {
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
@@ -1044,38 +992,32 @@
 
     statusMsg.innerText = "🔍 選択範囲を解析中...";
 
-    // 1. OCR（文字認識）による数値抽出（シングルトンワーカー使用）
+    // 1. 超軽量OCR（メモリ制限対策：最大200x60に制限）
     let detectedNumber = null;
     let textBBox = null;
 
     try {
-      const worker = await getOCRWorker();
-      if (worker) {
-        const { canvas: sc, ctx: sctx } = getScratchContext(rw, rh);
-        sctx.clearRect(0, 0, rw, rh);
-        sctx.drawImage(currentDocSource, minX, minY, rw, rh, 0, 0, rw, rh);
+      if (window.Tesseract && rw <= 300 && rh <= 120) {
+        const scaleDown = Math.min(1.0, 180 / rw);
+        const ocrW = Math.round(rw * scaleDown);
+        const ocrH = Math.round(rh * scaleDown);
 
-        const result = await worker.recognize(sc);
-        const fullText = result.data.text || "";
-        const matches = fullText.match(/\d{3,6}/g);
+        const { canvas: sc, ctx: sctx } = getScratchContext(ocrW, ocrH);
+        sctx.clearRect(0, 0, ocrW, ocrH);
+        sctx.drawImage(currentDocSource, minX, minY, rw, rh, 0, 0, ocrW, ocrH);
+
+        const { data: { text } } = await Tesseract.recognize(sc, 'eng', {
+          tessedit_char_whitelist: '0123456789'
+        });
+        const matches = (text || "").match(/\d{3,6}/g);
         if (matches && matches.length > 0) {
           matches.sort((a, b) => b.length - a.length);
           detectedNumber = matches[0];
-        }
-
-        if (result.data.words) {
-          for (let w of result.data.words) {
-            if (w.text && w.text.includes(detectedNumber || "")) {
-              textBBox = {
-                x0: minX + w.bbox.x0,
-                x1: minX + w.bbox.x1,
-                y0: minY + w.bbox.y0,
-                y1: minY + w.bbox.y1,
-                h: Math.max(12, w.bbox.y1 - w.bbox.y0)
-              };
-              break;
-            }
-          }
+          textBBox = {
+            x0: minX, x1: maxX,
+            y0: minY, y1: maxY,
+            h: rh
+          };
         }
       }
     } catch (err) {
@@ -1088,42 +1030,38 @@
     }
 
     // 2. 水平ライン（主寸法線）の特定
-    // 【重要】文字の内部（Y_top〜Y_bottom）は文字ストローク（2や3の横棒）なので絶対に探索しない！
     let bestBaselineY = -1;
 
-    // パターン1: 囲み枠自体が水平線の場合（文字が認識されていない純粋な線囲み）
-    if (!textBBox) {
-      const boxData = getSafeImageData(minX, minY, rw, rh);
-      if (boxData) {
-        let maxRowDark = 0;
-        let peakRowY = -1;
-        for (let y = 0; y < rh; y++) {
-          let count = 0;
-          for (let x = 0; x < rw; x++) {
-            const idx = (y * rw + x) * 4;
-            if (isDarkPixel(boxData.data[idx], boxData.data[idx + 1], boxData.data[idx + 2], 230)) count++;
-          }
-          if (count > maxRowDark) {
-            maxRowDark = count;
-            peakRowY = y;
-          }
+    // パターン1: 囲み枠そのものに水平線が含まれているか
+    const boxData = getSafeImageData(minX, minY, rw, rh);
+    if (boxData) {
+      let maxRowDark = 0;
+      let peakRowY = -1;
+      for (let y = 0; y < rh; y++) {
+        let count = 0;
+        for (let x = 0; x < rw; x++) {
+          const idx = (y * rw + x) * 4;
+          if (isDarkPixel(boxData.data[idx], boxData.data[idx + 1], boxData.data[idx + 2], 230)) count++;
         }
-        if (maxRowDark >= rw * 0.25 && peakRowY !== -1) {
-          bestBaselineY = minY + peakRowY;
+        if (count > maxRowDark) {
+          maxRowDark = count;
+          peakRowY = y;
         }
+      }
+      if (maxRowDark >= rw * 0.20 && peakRowY !== -1) {
+        bestBaselineY = minY + peakRowY;
       }
     }
 
-    // パターン2: 文字が認識された場合、文字の「直下（文字の下端から0.2H〜0.7H外側）」のみを探す
+    // パターン2: 文字認識時、文字の「直下（文字下端から0.2H〜0.65H）」を探す
     if (bestBaselineY === -1 && textBBox) {
       const textH = textBBox.h;
       const textCenterX = (textBBox.x0 + textBBox.x1) / 2;
       const scanW = Math.max(rw * 2, 220);
       const scanX = Math.max(0, Math.round(textCenterX - scanW / 2));
 
-      // 文字の下端（y1）より外側のみサンプリング
-      const bandTop = Math.round(textBBox.y1 + textH * 0.20);
-      const bandBottom = Math.round(textBBox.y1 + textH * 0.70);
+      const bandTop = Math.round(textBBox.y1 + textH * 0.18);
+      const bandBottom = Math.round(textBBox.y1 + textH * 0.65);
       const bandH = Math.max(8, bandBottom - bandTop);
 
       const bData = getSafeImageData(scanX, bandTop, scanW, bandH);
@@ -1143,22 +1081,22 @@
       }
     }
 
-    // 3. 水平ラインが存在する場合 ➜ 小ブロック単位のストリーミング左右走査（OOM回避）
+    // 3. 水平ラインが存在する場合 ➜ Y座標を完全固定して左右走査（斜め飛び完全防止）
     if (bestBaselineY !== -1) {
-      statusMsg.innerText = "🔍 水平ライン延長線上の交点を認識中...";
+      statusMsg.innerText = "🔍 水平線上の交点を認識中...";
 
       const scanCenterX = textBBox ? (textBBox.x0 + textBBox.x1) / 2 : (minX + maxX) / 2;
-      const stripH = 20;
-      const stripStartY = Math.max(0, bestBaselineY - 10);
-      const blockSize = 150;
+      const stripH = 12; // 高さわずか12pxのみ走査（上下の円などに絶対に触れない）
+      const stripStartY = Math.max(0, bestBaselineY - 6);
+      const blockSize = 120;
 
-      let detectedP1_cand = null;
-      let detectedP2_cand = null;
+      let p1X = null;
+      let p2X = null;
 
       // 左方向ブロック探索
       let curX = Math.round(scanCenterX - 15);
       let gapCount = 0;
-      while (curX > 10 && !detectedP1_cand && gapCount < 3) {
+      while (curX > 10 && !p1X && gapCount < 3) {
         const blockW = Math.min(blockSize, curX);
         const startBx = curX - blockW;
         const bData = getSafeImageData(startBx, stripStartY, blockW, stripH);
@@ -1172,8 +1110,8 @@
             if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 228)) vScore++;
           }
           let hPresent = false;
-          for (let dy = -2; dy <= 2; dy++) {
-            const cy = 10 + dy;
+          for (let dy = -1; dy <= 1; dy++) {
+            const cy = 6 + dy;
             if (cy >= 0 && cy < stripH) {
               const idx = (cy * blockW + lx) * 4;
               if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 230)) { hPresent = true; break; }
@@ -1181,8 +1119,8 @@
           }
           if (hPresent) hasHInBlock = true;
 
-          if (vScore >= 8) {
-            detectedP1_cand = { x: startBx + lx, y: bestBaselineY };
+          if (vScore >= 6) {
+            p1X = startBx + lx;
             break;
           }
         }
@@ -1195,7 +1133,7 @@
       // 右方向ブロック探索
       curX = Math.round(scanCenterX + 15);
       gapCount = 0;
-      while (curX < currentDocSource.width - 10 && !detectedP2_cand && gapCount < 3) {
+      while (curX < currentDocSource.width - 10 && !p2X && gapCount < 3) {
         const blockW = Math.min(blockSize, currentDocSource.width - curX);
         const bData = getSafeImageData(curX, stripStartY, blockW, stripH);
         if (!bData) break;
@@ -1208,8 +1146,8 @@
             if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 228)) vScore++;
           }
           let hPresent = false;
-          for (let dy = -2; dy <= 2; dy++) {
-            const cy = 10 + dy;
+          for (let dy = -1; dy <= 1; dy++) {
+            const cy = 6 + dy;
             if (cy >= 0 && cy < stripH) {
               const idx = (cy * blockW + lx) * 4;
               if (isDarkPixel(bData.data[idx], bData.data[idx + 1], bData.data[idx + 2], 230)) { hPresent = true; break; }
@@ -1217,8 +1155,8 @@
           }
           if (hPresent) hasHInBlock = true;
 
-          if (vScore >= 8) {
-            detectedP2_cand = { x: curX + lx, y: bestBaselineY };
+          if (vScore >= 6) {
+            p2X = curX + lx;
             break;
           }
         }
@@ -1228,12 +1166,13 @@
         curX += blockW;
       }
 
-      const p1Raw = detectedP1_cand || { x: minX, y: bestBaselineY };
-      const p2Raw = detectedP2_cand || { x: maxX, y: bestBaselineY };
+      const finalX1 = snapXOnBaseline(p1X || minX, bestBaselineY);
+      const finalX2 = snapXOnBaseline(p2X || maxX, bestBaselineY);
 
+      // ★★★ Y座標は完全に同一の水平線（bestBaselineY）に固定 ★★★
       calibPoints = [
-        identifyAndSnapIntersection(p1Raw.x, p1Raw.y),
-        identifyAndSnapIntersection(p2Raw.x, p2Raw.y)
+        { x: finalX1, y: bestBaselineY },
+        { x: finalX2, y: bestBaselineY }
       ];
       redraw();
 
@@ -1255,7 +1194,7 @@
       closeMemoPanel();
       calibModal.style.display = 'block';
       calibInput.focus();
-      statusMsg.innerText = "交点（⚫️/十字/◯）を識別し中央に点打ちしました。「決定」を押してください";
+      statusMsg.innerText = "水平寸法線の両端に点打ちしました。「決定」を押してください";
     } else if (detectedNumber) {
       calibModal.style.display = 'none';
       statusMsg.innerText = `寸法値: ${detectedNumber} mm を認識！続けて直下の「水平線」を囲んでください`;
