@@ -844,27 +844,59 @@
     ctx.stroke();
   }
 
-  // --- 改良版：広域ベースライントレース＆端点貫通検出エンジン ---
+  // --- メモリ安全＆指ガイド優先スナップエンジン（クラッシュ完全防止） ---
   async function processCalibBoxSelection(p1, p2) {
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
     const minY = Math.min(p1.y, p2.y);
     const maxY = Math.max(p1.y, p2.y);
 
-    const rw = Math.max(20, Math.ceil(maxX - minX));
-    const rh = Math.max(15, Math.ceil(maxY - minY));
+    // メモリ安全マージン（左右+30px、上下+20pxのみ切り出し）
+    const padX = 30;
+    const padY = 20;
+
+    const rx = Math.max(0, Math.floor(minX - padX));
+    const ry = Math.max(0, Math.floor(minY - padY));
+    const rw = Math.min(currentDocSource.width - rx, Math.ceil((maxX - minX) + padX * 2));
+    const rh = Math.min(currentDocSource.height - ry, Math.ceil((maxY - minY) + padY * 2));
+
+    if (rw < 20 || rh < 10) {
+      statusMsg.innerText = "範囲が狭すぎます。もう一度囲んでください";
+      return;
+    }
 
     statusMsg.innerText = "🔍 寸法線と数値を高精度解析中...";
 
-    // 1. まず囲み枠からOCRで数値と文字座標を特定
+    // 必要最小限の小領域Canvasのみ生成（クラッシュ防止）
     const cropCanvas = document.createElement('canvas');
     cropCanvas.width = rw;
     cropCanvas.height = rh;
     const cropCtx = cropCanvas.getContext('2d');
-    cropCtx.drawImage(currentDocSource, minX, minY, rw, rh, 0, 0, rw, rh);
+    cropCtx.drawImage(currentDocSource, rx, ry, rw, rh, 0, 0, rw, rh);
 
+    const imgData = cropCtx.getImageData(0, 0, rw, rh);
+    const data = imgData.data;
+
+    const bin = new Uint8Array(rw * rh);
+    let redCount = 0;
+
+    for (let y = 0; y < rh; y++) {
+      for (let x = 0; x < rw; x++) {
+        const idx = (y * rw + x) * 4;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+        if (r > 140 && g < 100 && b < 100) {
+          bin[y * rw + x] = 2; // 赤マーカー
+          redCount++;
+        } else if (r < 170 && g < 170 && b < 170) {
+          bin[y * rw + x] = 1; // 黒線画
+        }
+      }
+    }
+
+    // 1. OCR（文字認識）による数値抽出
     let detectedNumber = null;
-    let localAnchor = null;
+    let textAnchor = null;
+    const textMask = new Uint8Array(rw * rh);
 
     try {
       if (window.Tesseract) {
@@ -881,60 +913,39 @@
         if (result.data.words) {
           for (let w of result.data.words) {
             if (w.text && w.text.includes(detectedNumber || "")) {
-              localAnchor = {
-                x: minX + (w.bbox.x0 + w.bbox.x1) / 2,
-                y: minY + (w.bbox.y0 + w.bbox.y1) / 2
+              textAnchor = {
+                cx: (w.bbox.x0 + w.bbox.x1) / 2,
+                cy: (w.bbox.y0 + w.bbox.y1) / 2
               };
               break;
             }
           }
+          result.data.words.forEach(w => {
+            const bx0 = Math.max(0, w.bbox.x0 - 5);
+            const by0 = Math.max(0, w.bbox.y0 - 5);
+            const bx1 = Math.min(rw - 1, w.bbox.x1 + 5);
+            const by1 = Math.min(rh - 1, w.bbox.y1 + 5);
+            for (let my = by0; my <= by1; my++) {
+              for (let mx = bx0; mx <= bx1; mx++) {
+                textMask[my * rw + mx] = 1;
+              }
+            }
+          });
         }
       }
     } catch (err) {
       console.warn("OCRスキップ:", err);
     }
 
-    // 2. 図面全幅のストリップ領域を切り出して探索（ドラッグ枠に閉じ込められない）
-    const anchorPoint = localAnchor || { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-    
-    // 主寸法線のY座標付近を中心に上下80px、幅は図面の端から端まで
-    const stripY = Math.max(0, Math.floor(anchorPoint.y - 40));
-    const stripH = Math.min(currentDocSource.height - stripY, 80);
-    const stripX = 0;
-    const stripW = currentDocSource.width;
-
-    const stripCanvas = document.createElement('canvas');
-    stripCanvas.width = stripW;
-    stripCanvas.height = stripH;
-    const stripCtx = stripCanvas.getContext('2d');
-    stripCtx.drawImage(currentDocSource, stripX, stripY, stripW, stripH, 0, 0, stripW, stripH);
-
-    const sData = stripCtx.getImageData(0, 0, stripW, stripH).data;
-    const sBin = new Uint8Array(stripW * stripH);
-    let sRedCount = 0;
-
-    for (let y = 0; y < stripH; y++) {
-      for (let x = 0; x < stripW; x++) {
-        const idx = (y * stripW + x) * 4;
-        const r = sData[idx], g = sData[idx + 1], b = sData[idx + 2];
-        if (r > 140 && g < 100 && b < 100) {
-          sBin[y * stripW + x] = 2; // 赤マーカー
-          sRedCount++;
-        } else if (r < 165 && g < 165 && b < 165) {
-          sBin[y * stripW + x] = 1; // 黒線画
-        }
-      }
-    }
-
     let detectedP1 = null;
     let detectedP2 = null;
 
-    // パターンA: 赤丸マーカー（サンプル図面等）
-    if (sRedCount > 40) {
+    // パターンA: サンプル図面の赤丸
+    if (redCount > 40) {
       let redPts = [];
-      for (let y = 0; y < stripH; y++) {
-        for (let x = 0; x < stripW; x++) {
-          if (sBin[y * stripW + x] === 2) redPts.push({ x: x, y: stripY + y });
+      for (let y = 0; y < rh; y++) {
+        for (let x = 0; x < rw; x++) {
+          if (bin[y * rw + x] === 2) redPts.push({ x: rx + x, y: ry + y });
         }
       }
       redPts.sort((a, b) => a.x - b.x);
@@ -951,86 +962,69 @@
       detectedP2 = calcC(rightCore);
     }
 
-    // パターンB: CAD図面（破線対応のロングトレース ＆ 端点ブレーク）
+    // パターンB: CAD白黒図面（ユーザー囲み枠の左右端を最優先ガイドとしてスナップ）
     if (!detectedP1 || !detectedP2) {
+      const cleanLine = new Uint8Array(rw * rh);
+      for (let i = 0; i < rw * rh; i++) {
+        if (bin[i] === 1 && textMask[i] === 0) cleanLine[i] = 1;
+      }
+
       // 主寸法線のY座標を特定
-      let bestLocalY = Math.round(anchorPoint.y - stripY);
+      let baselineY = -1;
       let maxHLine = 0;
-      for (let y = Math.max(0, bestLocalY - 20); y <= Math.min(stripH - 1, bestLocalY + 25); y++) {
+      const searchYMin = textAnchor ? Math.max(0, Math.round(textAnchor.cy - 20)) : 0;
+      const searchYMax = textAnchor ? Math.min(rh - 1, Math.round(textAnchor.cy + 30)) : rh - 1;
+
+      for (let y = searchYMin; y <= searchYMax; y++) {
         let run = 0;
-        for (let x = Math.max(0, anchorPoint.x - 200); x < Math.min(stripW, anchorPoint.x + 200); x++) {
-          if (sBin[y * stripW + x] === 1) run++;
+        for (let x = 0; x < rw; x++) {
+          if (cleanLine[y * rw + x] === 1) run++;
         }
-        if (run > maxHLine) {
+        if (run > maxHLine && run > rw * 0.15) {
           maxHLine = run;
-          bestLocalY = y;
+          baselineY = y;
         }
       }
-      const baselineY = stripY + bestLocalY;
-
-      // 破線・点線を飛び越える最大ギャップ（45pxまで許容）
-      const MAX_GAP = 45;
-
-      // 1. 左方向へトレース
-      let leftEnd = Math.round(anchorPoint.x);
-      let gap = 0;
-      for (let x = Math.round(anchorPoint.x); x >= 4; x--) {
-        let hasH = false;
-        for (let dy = -3; dy <= 3; dy++) {
-          const cy = bestLocalY + dy;
-          if (cy >= 0 && cy < stripH && sBin[cy * stripW + x] === 1) { hasH = true; break; }
-        }
-        if (hasH) {
-          gap = 0;
-          leftEnd = x;
-        } else {
-          gap++;
-          if (gap > MAX_GAP) break;
-        }
+      if (baselineY === -1) {
+        baselineY = textAnchor ? Math.round(textAnchor.cy) : Math.round(rh / 2);
       }
 
-      // 2. 右方向へトレース
-      let rightEnd = Math.round(anchorPoint.x);
-      gap = 0;
-      for (let x = Math.round(anchorPoint.x); x < stripW - 4; x++) {
-        let hasH = false;
-        for (let dy = -3; dy <= 3; dy++) {
-          const cy = bestLocalY + dy;
-          if (cy >= 0 && cy < stripH && sBin[cy * stripW + x] === 1) { hasH = true; break; }
-        }
-        if (hasH) {
-          gap = 0;
-          rightEnd = x;
-        } else {
-          gap++;
-          if (gap > MAX_GAP) break;
-        }
-      }
+      // ユーザーがドラッグ開始した左端（minX）と終了した右端（maxX）の近傍（±25px）から
+      // 最も強い縦目盛り・交点を探す
+      const findLocalSnap = (targetGlobalX) => {
+        const localX = Math.round(targetGlobalX - rx);
+        let bestX = localX;
+        let maxV = -1;
 
-      // 3. 末端近傍（±15px）にある垂直目盛り線・斜めスラッシュへ精密スナップ
-      const snapNearEnd = (targetX) => {
-        let bestX = targetX;
-        let maxV = 0;
-        for (let dx = -15; dx <= 15; dx++) {
-          const curX = targetX + dx;
-          if (curX < 2 || curX >= stripW - 2) continue;
+        for (let dx = -25; dx <= 25; dx++) {
+          const cx = localX + dx;
+          if (cx < 2 || cx >= rw - 2) continue;
+
           let vRun = 0;
-          for (let dy = -14; dy <= 14; dy++) {
-            const cy = bestLocalY + dy;
-            if (cy >= 0 && cy < stripH && sBin[cy * stripW + curX] === 1) vRun++;
+          for (let dy = -12; dy <= 12; dy++) {
+            const cy = baselineY + dy;
+            if (cy >= 0 && cy < rh && cleanLine[cy * rw + cx] === 1) vRun++;
           }
-          if (vRun > maxV && vRun >= 5) {
-            maxV = vRun;
-            bestX = curX;
+
+          // スラッシュ（45度）判定
+          let sRun = 0;
+          for (let d = -6; d <= 6; d++) {
+            const cy = baselineY + d;
+            const sx = cx + d;
+            if (cy >= 0 && cy < rh && sx >= 0 && sx < rw && cleanLine[cy * rw + sx] === 1) sRun++;
+          }
+
+          const score = Math.max(vRun, sRun * 1.5) - Math.abs(dx) * 0.1;
+          if (score > maxV && (vRun >= 4 || sRun >= 4)) {
+            maxV = score;
+            bestX = cx;
           }
         }
-        return { x: bestX, y: baselineY };
+        return { x: rx + bestX, y: ry + baselineY };
       };
 
-      if (rightEnd - leftEnd > 40) {
-        detectedP1 = snapNearEnd(leftEnd);
-        detectedP2 = snapNearEnd(rightEnd);
-      }
+      detectedP1 = findLocalSnap(minX);
+      detectedP2 = findLocalSnap(maxX);
     }
 
     if (detectedP1 && detectedP2 && dist(detectedP1, detectedP2) > 20) {
