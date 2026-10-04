@@ -149,7 +149,7 @@
 <body>
 
 <header id="appHeader">
-  <div class="app-title-ver">H M-r ver0.98</div>
+  <div class="app-title-ver">H M-r ver0.99</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -269,6 +269,9 @@
   let currentDocSource = null;
   let imgLoaded = false;
   let currentMeters = 0;
+
+  // ★★★ 寸法値取得ロックフラグ（点打ち完了まで再取得を防止） ★★★
+  let isDimValueLocked = false;
 
   const DB_NAME = 'KeblePlanDrawingDB_v5';
   const STORE_NAME = 'app_state';
@@ -621,6 +624,7 @@
     currentStroke = [];
     completedStrokes = [];
     currentMeters = 0;
+    isDimValueLocked = false;
     updateDistanceDisplay();
     pdfControls.style.display = 'none';
 
@@ -648,6 +652,7 @@
     currentStroke = [];
     completedStrokes = [];
     currentMeters = 0;
+    isDimValueLocked = false;
     updateDistanceDisplay();
     pdfControls.style.display = 'none';
 
@@ -769,6 +774,7 @@
     if (m === 'calib') {
       closeMemoPanel();
       calibPoints = [];
+      isDimValueLocked = false;
       statusMsg.innerText = "【縮尺設定】寸法値を囲むか、端点付近をタップ（自動吸着）";
     } else if (m === 'polyline') {
       statusMsg.innerText = pixelsPerMeter 
@@ -807,6 +813,9 @@
         } else {
           statusMsg.innerText = "【縮尺設定】寸法値を囲むか、端点付近をタップ（自動吸着）";
         }
+      } else {
+        isDimValueLocked = false; // 寸法値ロックも解除
+        statusMsg.innerText = "寸法値を囲むか、端点付近をタップしてください";
       }
     } else if (mode === 'polyline') {
       if (polylinePoints.length > 0) {
@@ -1040,6 +1049,9 @@
 
   // --- ドラッグ選択：寸法値のOCR読み取り専用 ---
   async function processCalibBoxSelection(p1, p2) {
+    // ロック中なら再度OCRを行わない
+    if (isDimValueLocked) return;
+
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
     const minY = Math.min(p1.y, p2.y);
@@ -1081,6 +1093,8 @@
       calibInput.value = detectedNumber;
       calibNote.innerText = `自動読取: ${detectedNumber} mm（変更可能）`;
       statusMsg.innerText = `寸法値: ${detectedNumber} mm を認識！寸法線の両端をタップしてください`;
+      // ★★★ 寸法値を取得できたので、点打ち完了までロック ★★★
+      isDimValueLocked = true;
     } else {
       statusMsg.innerText = "数値を認識できませんでした。端点付近をタップしてください";
     }
@@ -1088,7 +1102,7 @@
     redraw();
   }
 
-  // --- タッチ & マウス入力判定（ドラッグ枠判定の完全復旧） ---
+  // --- タッチ & マウス入力判定（スマートスナップ連動） ---
   let pendingTapTimer = null;
   let lastPinchEndTime = 0;
   let touchStartPos = { x: 0, y: 0 };
@@ -1113,6 +1127,7 @@
         closeMemoPanel();
         statusMsg.innerText = "点2吸着完了！長さを入力してください";
         
+        // OCR取得済みでなければサジェスト
         const currentVal = calibInput.value;
         if (!currentVal || currentVal === "1820" || currentVal === "12300") {
           const pxDist = dist(calibPoints[0], calibPoints[1]);
@@ -1259,9 +1274,12 @@
           }
         }, 60);
       } else if (mode === 'calib') {
-        const rect = canvas.getBoundingClientRect();
-        calibBoxStart = toImgCoords(t.clientX - rect.left, t.clientY - rect.top);
-        calibBoxCurrent = calibBoxStart;
+        // ロック中でない場合のみドラッグ開始点を記録
+        if (!isDimValueLocked) {
+          const rect = canvas.getBoundingClientRect();
+          calibBoxStart = toImgCoords(t.clientX - rect.left, t.clientY - rect.top);
+          calibBoxCurrent = calibBoxStart;
+        }
       }
     }
   }, { passive: false });
@@ -1297,8 +1315,8 @@
       const moveDist = Math.hypot(t.clientX - touchStartPos.x, t.clientY - touchStartPos.y);
       if (moveDist > 8) {
         isTouchMoved = true;
-        // ★★★ ドラッグ囲みフラグのセット（復旧） ★★★
-        if (mode === 'calib' && !isCalibBoxDragging && calibModal.style.display !== 'block') {
+        // ★★★ 寸法値未ロックの場合のみドラッグ囲みモードを有効化 ★★★
+        if (mode === 'calib' && !isDimValueLocked && !isCalibBoxDragging && calibModal.style.display !== 'block') {
           isCalibBoxDragging = true;
         }
       }
@@ -1342,9 +1360,11 @@
       if (mode === 'measure') {
         startFreehand(e.clientX, e.clientY);
       } else if (mode === 'calib') {
-        const rect = canvas.getBoundingClientRect();
-        calibBoxStart = toImgCoords(e.clientX - rect.left, e.clientY - rect.top);
-        calibBoxCurrent = calibBoxStart;
+        if (!isDimValueLocked) {
+          const rect = canvas.getBoundingClientRect();
+          calibBoxStart = toImgCoords(e.clientX - rect.left, e.clientY - rect.top);
+          calibBoxCurrent = calibBoxStart;
+        }
       }
     } else if (e.button === 2 || e.button === 1) {
       isMouseRightDown = true;
@@ -1362,7 +1382,7 @@
       const mDist = Math.hypot(e.clientX - touchStartPos.x, e.clientY - touchStartPos.y);
       if (mDist > 6) {
         isMouseMoved = true;
-        if (mode === 'calib' && !isCalibBoxDragging && calibModal.style.display !== 'block') {
+        if (mode === 'calib' && !isDimValueLocked && !isCalibBoxDragging && calibModal.style.display !== 'block') {
           isCalibBoxDragging = true;
         }
       }
@@ -1394,6 +1414,7 @@
       const pxLen = dist(calibPoints[0], calibPoints[1]);
       pixelsPerMeter = pxLen / (valMm / 1000.0);
       calibModal.style.display = 'none';
+      isDimValueLocked = false; // ★★★ 設定完了でロック解除 ★★★
       setMode('polyline');
       statusMsg.innerText = `縮尺設定完了！「角タップ」または「なぞる」で計測できます`;
       saveStateToDB({ pixelsPerMeter: pixelsPerMeter, calibPoints: calibPoints });
@@ -1408,6 +1429,7 @@
 
   document.getElementById('btnCancelCalib').onclick = () => {
     calibPoints = [];
+    isDimValueLocked = false; // ★★★ 取消でロック解除 ★★★
     calibModal.style.display = 'none';
     setMode('calib');
   };
