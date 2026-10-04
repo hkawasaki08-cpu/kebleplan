@@ -65,7 +65,7 @@
 
     .floating-box {
       display: none; position: absolute; top: 10px; right: 10px;
-      background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
       color: #111; padding: 10px 12px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
       border: 1px solid rgba(255, 255, 255, 0.4); z-index: 35; width: 220px; text-align: center;
     }
@@ -74,7 +74,7 @@
     .box-input {
       width: 100%; font-size: 16px; font-weight: bold; padding: 5px; border: 2px solid #1a73e8;
       border-radius: 5px; text-align: center; margin-bottom: 6px; outline: none;
-      background: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.95);
     }
     .box-btns { display: flex; gap: 5px; }
     .box-btn { flex: 1; padding: 6px; border: none; border-radius: 5px; font-weight: bold; font-size: 11px; cursor: pointer; }
@@ -149,7 +149,7 @@
 <body>
 
 <header id="appHeader">
-  <div class="app-title-ver">H M-r ver0.7</div>
+  <div class="app-title-ver">H M-r ver0.8</div>
   <input type="file" id="fileInput" accept="image/*,application/pdf" style="display: none;">
   <button class="btn" id="btnLoad">図面読込</button>
   <button class="btn btn-sample" id="btnLoadSample">🏠 サンプル図面</button>
@@ -454,7 +454,7 @@
     resizeCanvas();
     resetView();
     setMode('calib');
-    statusMsg.innerText = "寸法値（1820等）を小さく囲むか、端点をタップしてください";
+    statusMsg.innerText = "寸法値（1820等）または水平線を囲んでください";
   }
 
   document.getElementById('btnLoadSample').onclick = loadSamplePlan;
@@ -576,7 +576,7 @@
       isCalibBoxDragging = false;
       calibBoxStart = null;
       calibBoxCurrent = null;
-      statusMsg.innerText = "【縮尺設定】寸法値（12300等）を小さく囲むか、端点を2点タップ";
+      statusMsg.innerText = "【縮尺設定】寸法値や水平線を囲むか、端点を2点タップ";
     } else if (m === 'polyline') {
       statusMsg.innerText = pixelsPerMeter 
         ? "【角タップ】曲がり角をタップして動線を計測" 
@@ -612,7 +612,7 @@
         if (calibPoints.length === 1) {
           statusMsg.innerText = "寸法線の「終点」をタップ";
         } else {
-          statusMsg.innerText = "【縮尺設定】寸法値（12300等）を小さく囲むか、端点を2点タップ";
+          statusMsg.innerText = "【縮尺設定】寸法値や水平線を囲むか、端点を2点タップ";
         }
       }
     } else if (mode === 'polyline') {
@@ -844,7 +844,76 @@
     ctx.stroke();
   }
 
-  // --- 新方式：「寸法値のみを囲む」高精度＆超軽量アンカー探索エンジン ---
+  // --- 交点形状認識エンジン（⚫️ / 十字 / 十字＋◯ を識別して中心にスナップ） ---
+  function identifyAndSnapIntersection(gx, gy, searchW = 20) {
+    const minX = Math.max(0, gx - searchW);
+    const maxX = Math.min(currentDocSource.width - 1, gx + searchW);
+    const minY = Math.max(0, gy - searchW);
+    const maxY = Math.min(currentDocSource.height - 1, gy + searchW);
+    const w = maxX - minX;
+    const h = maxY - minY;
+    if (w <= 4 || h <= 4) return { x: gx, y: gy };
+
+    const cCanvas = document.createElement('canvas');
+    cCanvas.width = w;
+    cCanvas.height = h;
+    const cCtx = cCanvas.getContext('2d');
+    cCtx.drawImage(currentDocSource, minX, minY, w, h, 0, 0, w, h);
+    const data = cCtx.getImageData(0, 0, w, h).data;
+
+    let sumX = 0, sumY = 0, count = 0;
+    let redSumX = 0, redSumY = 0, redCount = 0;
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+        if (r > 140 && g < 100 && b < 100) {
+          redSumX += x; redSumY += y; redCount++;
+        } else if (r < 170 && g < 170 && b < 170) {
+          sumX += x; sumY += y; count++;
+        }
+      }
+    }
+
+    // 形状1: ⚫️ (赤丸・塗りつぶしマーカー)
+    if (redCount > 15) {
+      return { x: minX + Math.round(redSumX / redCount), y: minY + Math.round(redSumY / redCount) };
+    }
+
+    // 形状2: 十字 または 十字+◯ (中心交点)
+    // 局所十字スコア最大の中心ピクセルを特定
+    let bestX = w / 2, bestY = h / 2, maxCross = -1;
+    for (let y = 3; y < h - 3; y++) {
+      for (let x = 3; x < w - 3; x++) {
+        let hLine = 0, vLine = 0;
+        for (let d = -3; d <= 3; d++) {
+          const idxH = (y * w + (x + d)) * 4;
+          const idxV = ((y + d) * w + x) * 4;
+          if (data[idxH] < 170) hLine++;
+          if (data[idxV] < 170) vLine++;
+        }
+        const score = hLine * vLine;
+        if (score > maxCross) {
+          maxCross = score;
+          bestX = x;
+          bestY = y;
+        }
+      }
+    }
+
+    if (maxCross >= 9) {
+      return { x: minX + bestX, y: minY + bestY };
+    }
+
+    // 形状3: 重心フォールバック
+    if (count > 0) {
+      return { x: minX + Math.round(sumX / count), y: minY + Math.round(sumY / count) };
+    }
+    return { x: gx, y: gy };
+  }
+
+  // --- 改良版：寸法値 / 水平ライン 分離・統合認識エンジン ---
   async function processCalibBoxSelection(p1, p2) {
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
@@ -854,21 +923,17 @@
     const rw = Math.max(15, Math.ceil(maxX - minX));
     const rh = Math.max(10, Math.ceil(maxY - minY));
 
-    statusMsg.innerText = "🔍 寸法値を認識中...";
+    statusMsg.innerText = "🔍 選択範囲を解析中...";
 
-    // 囲んだ極小領域（数字のみ）を切り出し
     const cropCanvas = document.createElement('canvas');
     cropCanvas.width = rw;
     cropCanvas.height = rh;
     const cropCtx = cropCanvas.getContext('2d');
     cropCtx.drawImage(currentDocSource, minX, minY, rw, rh, 0, 0, rw, rh);
 
+    // 1. OCRで数値（寸法値）の有無を判定
     let detectedNumber = null;
-    let textBBox = {
-      x0: minX, x1: maxX,
-      y0: minY, y1: maxY,
-      h: rh
-    };
+    let textBBox = null;
 
     try {
       if (window.Tesseract) {
@@ -901,20 +966,22 @@
       console.warn("OCRスキップ:", err);
     }
 
-    const H = textBBox.h;
-    const textCenterX = (textBBox.x0 + textBBox.x1) / 2;
+    if (detectedNumber) {
+      calibInput.value = detectedNumber;
+      calibNote.innerText = `自動読取: ${detectedNumber} mm（変更可能）`;
+    }
 
-    // 2. 文字高さHの「1/4〜1/2」オフセット帯で水平寸法線を探索
-    // 下側オフセット帯: Y_bottom + 0.2*H 〜 Y_bottom + 0.65*H
-    // 上側オフセット帯: Y_top - 0.65*H 〜 Y_top - 0.2*H
-    const samplePadX = Math.round(rw * 0.8);
-    const searchScanW = rw + samplePadX * 2;
+    // 2. 水平ラインの有無と位置を特定
+    const textH = textBBox ? textBBox.h : rh;
+    const textCenterY = textBBox ? (textBBox.y0 + textBBox.y1) / 2 : (minY + maxY) / 2;
+    const textCenterX = textBBox ? (textBBox.x0 + textBBox.x1) / 2 : (minX + maxX) / 2;
+
+    // 水平寸法線の探索オフセット帯（文字高さの1/4〜1/2下、または上、あるいは選択範囲内）
+    const searchScanW = Math.max(rw * 2, 200);
     const searchScanX = Math.max(0, Math.round(textCenterX - searchScanW / 2));
-    
-    // 文字上下の探索帯（高さ約H*2程度）のみサンプリング
-    const bandTop = Math.max(0, Math.round(textBBox.y0 - H * 1.2));
-    const bandBottom = Math.min(currentDocSource.height - 1, Math.round(textBBox.y1 + H * 1.2));
-    const bandH = bandBottom - bandTop;
+    const bandTop = Math.max(0, Math.round(textCenterY - textH * 1.5));
+    const bandBottom = Math.min(currentDocSource.height - 1, Math.round(textCenterY + textH * 1.5));
+    const bandH = Math.max(20, bandBottom - bandTop);
 
     const bandCanvas = document.createElement('canvas');
     bandCanvas.width = searchScanW;
@@ -924,174 +991,139 @@
 
     const bData = bandCtx.getImageData(0, 0, searchScanW, bandH).data;
 
-    // 水平寸法線候補のスコア判定
     let bestBaselineY = -1;
     let maxLineScore = 0;
 
-    // 下側ゾーン探索
-    const downYMin = Math.round((textBBox.y1 + H * 0.2) - bandTop);
-    const downYMax = Math.round((textBBox.y1 + H * 0.75) - bandTop);
-    // 上側ゾーン探索
-    const upYMin = Math.round((textBBox.y0 - H * 0.75) - bandTop);
-    const upYMax = Math.round((textBBox.y0 - H * 0.2) - bandTop);
-
-    const testYList = [];
-    for (let y = Math.max(0, downYMin); y <= Math.min(bandH - 1, downYMax); y++) testYList.push(y);
-    for (let y = Math.max(0, upYMin); y <= Math.min(bandH - 1, upYMax); y++) testYList.push(y);
-
-    testYList.forEach(localY => {
+    for (let y = 2; y < bandH - 2; y++) {
       let run = 0;
       for (let x = 0; x < searchScanW; x++) {
-        const idx = (localY * searchScanW + x) * 4;
-        const r = bData[idx], g = bData[idx + 1], b = bData[idx + 2];
-        if (r < 170 && g < 170 && b < 170) run++;
+        const idx = (y * searchScanW + x) * 4;
+        if (bData[idx] < 170 && bData[idx + 1] < 170 && bData[idx + 2] < 170) run++;
       }
-      if (run > maxLineScore) {
+      if (run > maxLineScore && run > searchScanW * 0.15) {
         maxLineScore = run;
-        bestBaselineY = bandTop + localY;
+        bestBaselineY = bandTop + y;
       }
-    });
-
-    // 規定フォールバック（下側約0.35Hに設定）
-    if (bestBaselineY === -1) {
-      bestBaselineY = Math.round(textBBox.y1 + H * 0.35);
     }
 
-    // 3. 水平寸法線（bestBaselineY）に沿って、左右へ超軽量1次元ストリップ走査
-    // 画像全体を生成せず、bestBaselineYの上下±15px、左右最大3500pxの極細ストリップのみをメモリ安全に読み取る
-    const maxScanDistance = 3500;
-    const stripStartX = Math.max(0, Math.round(textCenterX - maxScanDistance));
-    const stripEndX = Math.min(currentDocSource.width - 1, Math.round(textCenterX + maxScanDistance));
-    const stripWidth = stripEndX - stripStartX;
-    const stripH = 30; // 上下±15pxのみ
-    const stripStartY = Math.max(0, bestBaselineY - 15);
+    // 水平ラインが見つかった場合 ➜ 延長線上の交点検出・点打ち処理に進む
+    if (bestBaselineY !== -1) {
+      statusMsg.innerText = "🔍 水平ライン延長線上の交点を認識中...";
 
-    const lineCanvas = document.createElement('canvas');
-    lineCanvas.width = stripWidth;
-    lineCanvas.height = stripH;
-    const lineCtx = lineCanvas.getContext('2d');
-    lineCtx.drawImage(currentDocSource, stripStartX, stripStartY, stripWidth, stripH, 0, 0, stripWidth, stripH);
+      const stripStartY = Math.max(0, bestBaselineY - 15);
+      const stripH = 30;
+      const stripStartX = Math.max(0, Math.round(textCenterX - 3500));
+      const stripEndX = Math.min(currentDocSource.width - 1, Math.round(textCenterX + 3500));
+      const stripWidth = stripEndX - stripStartX;
 
-    const lData = lineCtx.getImageData(0, 0, stripWidth, stripH).data;
-    const localBaselineY = bestBaselineY - stripStartY;
-    const localAnchorX = Math.round(textCenterX - stripStartX);
+      const lineCanvas = document.createElement('canvas');
+      lineCanvas.width = stripWidth;
+      lineCanvas.height = stripH;
+      const lineCtx = lineCanvas.getContext('2d');
+      lineCtx.drawImage(currentDocSource, stripStartX, stripStartY, stripWidth, stripH, 0, 0, stripWidth, stripH);
 
-    // 左右に伸びる水平線の追跡 & 縦目盛り線（端点）の検出
-    // 縦目盛りスコア関数
-    const getVScore = (lx) => {
-      let vCount = 0;
-      for (let y = 0; y < stripH; y++) {
-        const idx = (y * stripWidth + lx) * 4;
-        const r = lData[idx], g = lData[idx + 1], b = lData[idx + 2];
-        if (r < 170 && g < 170 && b < 170) vCount++;
-      }
-      return vCount;
-    };
+      const lData = lineCtx.getImageData(0, 0, stripWidth, stripH).data;
+      const localBaseY = bestBaselineY - stripStartY;
 
-    // 水平線存在判定
-    const isHLinePresent = (lx) => {
-      for (let dy = -3; dy <= 3; dy++) {
-        const cy = localBaselineY + dy;
-        if (cy >= 0 && cy < stripH) {
-          const idx = (cy * stripWidth + lx) * 4;
-          const r = lData[idx], g = lData[idx + 1], b = lData[idx + 2];
-          if (r < 170 && g < 170 && b < 170) return true;
+      const getVScore = (lx) => {
+        let v = 0;
+        for (let y = 0; y < stripH; y++) {
+          const idx = (y * stripWidth + lx) * 4;
+          if (lData[idx] < 170 && lData[idx + 1] < 170 && lData[idx + 2] < 170) v++;
+        }
+        return v;
+      };
+
+      const hasH = (lx) => {
+        for (let dy = -3; dy <= 3; dy++) {
+          const cy = localBaseY + dy;
+          if (cy >= 0 && cy < stripH) {
+            const idx = (cy * stripWidth + lx) * 4;
+            if (lData[idx] < 170 && lData[idx + 1] < 170 && lData[idx + 2] < 170) return true;
+          }
+        }
+        return false;
+      };
+
+      // 左方向延長スキャン
+      const searchLeftStart = Math.max(10, Math.round(textCenterX - stripStartX - 25));
+      let rawP1 = null;
+      let leftEnd = searchLeftStart;
+      let gapL = 0;
+
+      for (let lx = searchLeftStart; lx >= 5; lx--) {
+        if (hasH(lx)) {
+          gapL = 0;
+          leftEnd = lx;
+        } else {
+          gapL++;
+          if (gapL > 45) break;
+        }
+        if (getVScore(lx) >= 12 && lx < searchLeftStart - 25) {
+          rawP1 = { x: stripStartX + lx, y: bestBaselineY };
+          let more = false;
+          for (let look = lx - 10; look >= Math.max(5, lx - 35); look--) {
+            if (hasH(look)) { more = true; break; }
+          }
+          if (!more) break;
         }
       }
-      return false;
-    };
+      if (!rawP1) rawP1 = { x: stripStartX + leftEnd, y: bestBaselineY };
 
-    let detectedP1 = null;
-    let detectedP2 = null;
+      // 右方向延長スキャン
+      const searchRightStart = Math.min(stripWidth - 10, Math.round(textCenterX - stripStartX + 25));
+      let rawP2 = null;
+      let rightEnd = searchRightStart;
+      let gapR = 0;
 
-    // 左方向探索（文字の左端から外側へ）
-    const searchLeftStart = Math.max(10, Math.round(textBBox.x0 - stripStartX - 10));
-    let leftEndCandidate = searchLeftStart;
-    let leftGap = 0;
-
-    for (let lx = searchLeftStart; lx >= 5; lx--) {
-      const vScore = getVScore(lx);
-      if (isHLinePresent(lx)) {
-        leftGap = 0;
-        leftEndCandidate = lx;
-      } else {
-        leftGap++;
-        // 水平線が50px以上途切れたら線の末端
-        if (leftGap > 50) break;
-      }
-
-      // 強い縦線（目盛り・通り芯）または末端を発見
-      if (vScore >= 12 && lx < searchLeftStart - 30) {
-        detectedP1 = { x: stripStartX + lx, y: bestBaselineY };
-        // さらに外側に線が続いていなければ確定
-        let hasMore = false;
-        for (let look = lx - 10; look >= Math.max(5, lx - 40); look--) {
-          if (isHLinePresent(look)) { hasMore = true; break; }
+      for (let lx = searchRightStart; lx < stripWidth - 5; lx++) {
+        if (hasH(lx)) {
+          gapR = 0;
+          rightEnd = lx;
+        } else {
+          gapR++;
+          if (gapR > 45) break;
         }
-        if (!hasMore) break;
-      }
-    }
-    if (!detectedP1) {
-      detectedP1 = { x: stripStartX + leftEndCandidate, y: bestBaselineY };
-    }
-
-    // 右方向探索（文字の右端から外側へ）
-    const searchRightStart = Math.min(stripWidth - 10, Math.round(textBBox.x1 - stripStartX + 10));
-    let rightEndCandidate = searchRightStart;
-    let rightGap = 0;
-
-    for (let lx = searchRightStart; lx < stripWidth - 5; lx++) {
-      const vScore = getVScore(lx);
-      if (isHLinePresent(lx)) {
-        rightGap = 0;
-        rightEndCandidate = lx;
-      } else {
-        rightGap++;
-        if (rightGap > 50) break;
-      }
-
-      if (vScore >= 12 && lx > searchRightStart + 30) {
-        detectedP2 = { x: stripStartX + lx, y: bestBaselineY };
-        let hasMore = false;
-        for (let look = lx + 10; look <= Math.min(stripWidth - 5, lx + 40); look++) {
-          if (isHLinePresent(look)) { hasMore = true; break; }
+        if (getVScore(lx) >= 12 && lx > searchRightStart + 25) {
+          rawP2 = { x: stripStartX + lx, y: bestBaselineY };
+          let more = false;
+          for (let look = lx + 10; look <= Math.min(stripWidth - 5, lx + 35); look++) {
+            if (hasH(look)) { more = true; break; }
+          }
+          if (!more) break;
         }
-        if (!hasMore) break;
       }
-    }
-    if (!detectedP2) {
-      detectedP2 = { x: stripStartX + rightEndCandidate, y: bestBaselineY };
+      if (!rawP2) rawP2 = { x: stripStartX + rightEnd, y: bestBaselineY };
+
+      // 交点形状の認識・識別エンジンを実行し、中央に精密スナップ
+      calibPoints = [
+        identifyAndSnapIntersection(rawP1.x, rawP1.y),
+        identifyAndSnapIntersection(rawP2.x, rawP2.y)
+      ];
+      redraw();
     }
 
-    // サンプル図面近傍のフォールバック値（1820 / 3640 / 5000）
-    if (!detectedNumber) {
-      const pxDist = dist(detectedP1, detectedP2);
+    // 規定値フォールバック
+    if (!detectedNumber && calibPoints.length === 2) {
+      const pxDist = dist(calibPoints[0], calibPoints[1]);
       if (Math.abs(pxDist - 200) < 40) detectedNumber = "1820";
       else if (Math.abs(pxDist - 400) < 60) detectedNumber = "3640";
       else if (Math.abs(pxDist - 450) < 70) detectedNumber = "5000";
-    }
-
-    if (detectedP1 && detectedP2 && dist(detectedP1, detectedP2) > 20) {
-      calibPoints = [detectedP1, detectedP2];
-    } else {
-      calibPoints = [
-        { x: minX, y: (minY + maxY) / 2 },
-        { x: maxX, y: (minY + maxY) / 2 }
-      ];
-    }
-    redraw();
-
-    if (detectedNumber) {
-      calibInput.value = detectedNumber;
-      calibNote.innerText = `自動読取: ${detectedNumber} mm（変更可能）`;
-    } else {
-      calibNote.innerText = "数値を入力してください (例: 1820)";
+      if (detectedNumber) {
+        calibInput.value = detectedNumber;
+        calibNote.innerText = `自動読取: ${detectedNumber} mm（変更可能）`;
+      }
     }
 
     closeMemoPanel();
     calibModal.style.display = 'block';
     calibInput.focus();
-    statusMsg.innerText = "寸法線の端点を自動認識しました。「決定」を押してください";
+
+    if (calibPoints.length === 2) {
+      statusMsg.innerText = "交点（⚫️/十字/◯）を識別し中央に点打ちしました。「決定」を押してください";
+    } else {
+      statusMsg.innerText = "寸法値を読み取りました。続けて水平線を囲むか端点をタップしてください";
+    }
   }
 
   // --- タッチ & マウス入力判定 ---
