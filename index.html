@@ -303,7 +303,6 @@
 
   let isInteractingUI = false;
 
-  // --- ドラッグ矩形選択用変数 ---
   let isCalibBoxDragging = false;
   let calibBoxStart = null;
   let calibBoxCurrent = null;
@@ -845,10 +844,9 @@
     ctx.stroke();
   }
 
-  // --- 高精度交点検出エンジン（文字マスク ＋ 十字畳み込み ＋ 円形収縮） ---
+  // --- 高精度アンカー型交点検出エンジン ---
   async function processCalibBoxSelection(p1, p2) {
-    // 境界ギリギリの交点を取りこぼさないよう周囲にマージン（25px）を追加
-    const margin = 25;
+    const margin = 30;
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
     const minY = Math.min(p1.y, p2.y);
@@ -864,9 +862,8 @@
       return;
     }
 
-    statusMsg.innerText = "🔍 寸法線交点と数値を高精度解析中...";
+    statusMsg.innerText = "🔍 寸法線と数値を高精度解析中...";
 
-    // 解析用Canvasに切り出し
     const cropCanvas = document.createElement('canvas');
     cropCanvas.width = rw;
     cropCanvas.height = rh;
@@ -876,7 +873,6 @@
     const imgData = cropCtx.getImageData(0, 0, rw, rh);
     const data = imgData.data;
 
-    // 二値化（0: 背景, 1: 黒線画, 2: 赤色マーカー）
     const bin = new Uint8Array(rw * rh);
     let redPixelCount = 0;
 
@@ -888,17 +884,18 @@
         const b = data[idx + 2];
 
         if (r > 140 && g < 100 && b < 100) {
-          bin[y * rw + x] = 2; // 赤マーカー
+          bin[y * rw + x] = 2; // 赤色マーカー
           redPixelCount++;
         } else if (r < 125 && g < 125 && b < 125) {
-          bin[y * rw + x] = 1; // 黒線画
+          bin[y * rw + x] = 1; // 黒色線画
         }
       }
     }
 
-    // 1. OCR（文字認識）による数値抽出 & 文字座標マスク取得
+    // 1. OCR（文字認識）による数値抽出 & 寸法文字アンカーのBBox取得
     let detectedNumber = null;
-    let textMask = new Uint8Array(rw * rh);
+    let textAnchor = null;
+    const textMask = new Uint8Array(rw * rh);
 
     try {
       if (window.Tesseract) {
@@ -912,13 +909,24 @@
           detectedNumber = matches[0];
         }
 
-        // 文字領域（数字の周り）をマスクして交点誤検知から完全除外
-        if (result.data.words) {
+        // 最も有力な数字の単語BBoxをアンカーとして特定
+        if (result.data.words && result.data.words.length > 0) {
+          for (let w of result.data.words) {
+            if (w.text && w.text.includes(detectedNumber || "")) {
+              textAnchor = {
+                x0: w.bbox.x0, y0: w.bbox.y0,
+                x1: w.bbox.x1, y1: w.bbox.y1,
+                cx: (w.bbox.x0 + w.bbox.x1) / 2,
+                cy: (w.bbox.y0 + w.bbox.y1) / 2
+              };
+              break;
+            }
+          }
           result.data.words.forEach(w => {
-            const bx0 = Math.max(0, w.bbox.x0 - 6);
-            const by0 = Math.max(0, w.bbox.y0 - 6);
-            const bx1 = Math.min(rw - 1, w.bbox.x1 + 6);
-            const by1 = Math.min(rh - 1, w.bbox.y1 + 6);
+            const bx0 = Math.max(0, w.bbox.x0 - 5);
+            const by0 = Math.max(0, w.bbox.y0 - 5);
+            const bx1 = Math.min(rw - 1, w.bbox.x1 + 5);
+            const by1 = Math.min(rh - 1, w.bbox.y1 + 5);
             for (let my = by0; my <= by1; my++) {
               for (let mx = bx0; mx <= bx1; mx++) {
                 textMask[my * rw + mx] = 1;
@@ -928,15 +936,14 @@
         }
       }
     } catch (err) {
-      console.warn("OCR解析スキップ:", err);
+      console.warn("OCRスキップ:", err);
     }
 
     let detectedP1 = null;
     let detectedP2 = null;
 
-    // パターンA: サンプル図面等の「赤丸」マーカーが存在する場合
+    // パターンA: サンプル図面等の「赤丸」マーカーがある場合
     if (redPixelCount > 40) {
-      // モルフォロジー収縮（Erosion）: 赤丸から伸びる太さ2〜3pxの細い線を消滅させ、円形コアだけを残す
       const eroded = new Uint8Array(rw * rh);
       const radErode = 2;
       for (let y = radErode; y < rh - radErode; y++) {
@@ -957,7 +964,6 @@
         }
       }
 
-      // 残った円形コアの左右クラスタ重心を算出
       let corePts = [];
       for (let y = 0; y < rh; y++) {
         for (let x = 0; x < rw; x++) {
@@ -981,9 +987,8 @@
       }
     }
 
-    // パターンB: 実際のCAD白黒図面（十字カーネル畳み込みによる本物の交点検出）
+    // パターンB: 実際のCAD白黒図面（文字アンカー連動ベースライントレース）
     if (!detectedP1 || !detectedP2) {
-      // 1. 文字マスク領域を除外した線画マップを作成
       const cleanLine = new Uint8Array(rw * rh);
       for (let i = 0; i < rw * rh; i++) {
         if (bin[i] === 1 && textMask[i] === 0) {
@@ -991,62 +996,110 @@
         }
       }
 
-      // 2. 十字交差応答フィルター（Cross Correlation）
-      // 中心から上下左右4方向（距離4〜14px）に黒線が伸びているピクセルをスコアリング
-      const crossScore = new Float32Array(rw * rh);
-      const span = 10;
+      // 1. 寸法文字アンカーの近傍を通る主寸法線（水平線）のY座標を特定
+      let baselineY = -1;
+      let maxHLineRun = 0;
 
-      for (let y = span; y < rh - span; y++) {
-        for (let x = span; x < rw - span; x++) {
-          if (cleanLine[y * rw + x] !== 1) continue;
+      const searchYMin = textAnchor ? Math.max(0, textAnchor.y0 - 25) : 0;
+      const searchYMax = textAnchor ? Math.min(rh - 1, textAnchor.y1 + 35) : rh - 1;
 
-          let countL = 0, countR = 0, countU = 0, countD = 0;
-          for (let d = 2; d <= span; d++) {
-            if (cleanLine[y * rw + (x - d)] === 1) countL++;
-            if (cleanLine[y * rw + (x + d)] === 1) countR++;
-            if (cleanLine[(y - d) * rw + x] === 1) countU++;
-            if (cleanLine[(y + d) * rw + x] === 1) countD++;
-          }
-
-          // 水平成分と垂直成分のバランス積（十字型交点のみが突出して高スコアになる）
-          const hScore = Math.min(countL, countR) + (countL + countR) * 0.5;
-          const vScore = Math.min(countU, countD) + (countU + countD) * 0.5;
-
-          if (hScore >= 3 && vScore >= 3) {
-            crossScore[y * rw + x] = hScore * vScore;
-          }
+      for (let y = searchYMin; y <= searchYMax; y++) {
+        let run = 0;
+        for (let x = 0; x < rw; x++) {
+          if (cleanLine[y * rw + x] === 1) run++;
+        }
+        if (run > maxHLineRun && run > rw * 0.25) {
+          maxHLineRun = run;
+          baselineY = y;
         }
       }
 
-      // 3. 左右それぞれの領域で最高スコアの交点（ピーク）を探索
-      const midX = rw / 2;
-      let maxScoreL = 0, bestL = null;
-      let maxScoreR = 0, bestR = null;
+      if (baselineY === -1) {
+        baselineY = textAnchor ? Math.round(textAnchor.cy) : Math.round(rh / 2);
+      }
 
-      for (let y = span; y < rh - span; y++) {
-        for (let x = span; x < rw - span; x++) {
-          const s = crossScore[y * rw + x];
-          if (s > 0) {
-            if (x < midX) {
-              if (s > maxScoreL) { maxScoreL = s; bestL = { x: rx + x, y: ry + y }; }
-            } else {
-              if (s > maxScoreR) { maxScoreR = s; bestR = { x: rx + x, y: ry + y }; }
+      // 2. 寸法線（baselineY）に沿って文字アンカーから左右へトレース
+      const startX = textAnchor ? Math.round(textAnchor.cx) : Math.round(rw / 2);
+
+      // 左方向の目盛り交点を探索
+      for (let x = startX - 10; x >= 4; x--) {
+        // baselineYの上下±5px範囲で縦方向の連続線（目盛り線・通り芯）を判定
+        for (let dy = -4; dy <= 4; dy++) {
+          const cy = baselineY + dy;
+          if (cy < 4 || cy >= rh - 4) continue;
+
+          let vRun = 0;
+          for (let vy = -12; vy <= 12; vy++) {
+            if (cy + vy >= 0 && cy + vy < rh && cleanLine[(cy + vy) * rw + x] === 1) vRun++;
+          }
+
+          if (vRun >= 7) {
+            detectedP1 = { x: rx + x, y: ry + cy };
+            break;
+          }
+        }
+        if (detectedP1) break;
+      }
+
+      // 右方向の目盛り交点を探索
+      for (let x = startX + 10; x < rw - 4; x++) {
+        for (let dy = -4; dy <= 4; dy++) {
+          const cy = baselineY + dy;
+          if (cy < 4 || cy >= rh - 4) continue;
+
+          let vRun = 0;
+          for (let vy = -12; vy <= 12; vy++) {
+            if (cy + vy >= 0 && cy + vy < rh && cleanLine[(cy + vy) * rw + x] === 1) vRun++;
+          }
+
+          if (vRun >= 7) {
+            detectedP2 = { x: rx + x, y: ry + cy };
+            break;
+          }
+        }
+        if (detectedP2) break;
+      }
+
+      // トレースで特定できなかった場合のフォールバック（十字畳み込み）
+      if (!detectedP1 || !detectedP2) {
+        const crossScore = new Float32Array(rw * rh);
+        const span = 8;
+        for (let y = span; y < rh - span; y++) {
+          for (let x = span; x < rw - span; x++) {
+            if (cleanLine[y * rw + x] !== 1) continue;
+            let cL = 0, cR = 0, cU = 0, cD = 0;
+            for (let d = 2; d <= span; d++) {
+              if (cleanLine[y * rw + (x - d)] === 1) cL++;
+              if (cleanLine[y * rw + (x + d)] === 1) cR++;
+              if (cleanLine[(y - d) * rw + x] === 1) cU++;
+              if (cleanLine[(y + d) * rw + x] === 1) cD++;
+            }
+            if (cL + cR >= 3 && cU + cD >= 3) {
+              crossScore[y * rw + x] = (cL + cR) * (cU + cD);
             }
           }
         }
-      }
 
-      if (bestL && bestR && dist(bestL, bestR) > 25) {
-        detectedP1 = bestL;
-        detectedP2 = bestR;
+        const midX = rw / 2;
+        let maxL = 0, bestL = null;
+        let maxR = 0, bestR = null;
+        for (let y = span; y < rh - span; y++) {
+          for (let x = span; x < rw - span; x++) {
+            const s = crossScore[y * rw + x];
+            if (s > 0) {
+              if (x < midX && s > maxL) { maxL = s; bestL = { x: rx + x, y: ry + y }; }
+              else if (x >= midX && s > maxR) { maxR = s; bestR = { x: rx + x, y: ry + y }; }
+            }
+          }
+        }
+        if (!detectedP1 && bestL) detectedP1 = bestL;
+        if (!detectedP2 && bestR) detectedP2 = bestR;
       }
     }
 
-    // 検出結果の適用
     if (detectedP1 && detectedP2 && dist(detectedP1, detectedP2) > 20) {
       calibPoints = [detectedP1, detectedP2];
     } else {
-      // フォールバック（ドラッグ枠の左右中点）
       calibPoints = [
         { x: minX, y: (minY + maxY) / 2 },
         { x: maxX, y: (minY + maxY) / 2 }
@@ -1054,7 +1107,6 @@
     }
     redraw();
 
-    // 規定値フォールバック
     if (!detectedNumber) {
       const pxDist = dist(calibPoints[0], calibPoints[1]);
       if (Math.abs(pxDist - 200) < 40) detectedNumber = "1820";
