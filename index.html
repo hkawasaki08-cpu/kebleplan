@@ -844,16 +844,15 @@
     ctx.stroke();
   }
 
-  // --- 改良版：主寸法線末端（ターミネーション）自動検出エンジン ---
+  // --- 改良版：ユーザー囲みガイド優先＋破線対応スナップエンジン ---
   async function processCalibBoxSelection(p1, p2) {
     const minX = Math.min(p1.x, p2.x);
     const maxX = Math.max(p1.x, p2.x);
     const minY = Math.min(p1.y, p2.y);
     const maxY = Math.max(p1.y, p2.y);
 
-    // 左右の端点を取りこぼさないよう、水平方向に+80px、上下に+30pxのマージン
-    const marginX = 80;
-    const marginY = 30;
+    const marginX = 40;
+    const marginY = 25;
 
     const rx = Math.max(0, Math.floor(minX - marginX));
     const ry = Math.max(0, Math.floor(minY - marginY));
@@ -889,13 +888,13 @@
         if (r > 140 && g < 100 && b < 100) {
           bin[y * rw + x] = 2; // 赤色マーカー
           redPixelCount++;
-        } else if (r < 160 && g < 160 && b < 160) {
+        } else if (r < 165 && g < 165 && b < 165) {
           bin[y * rw + x] = 1; // 黒色線画
         }
       }
     }
 
-    // 1. OCR（文字認識）による数値抽出 & 単語アンカー位置特定
+    // 1. OCR（文字認識）による数値抽出
     let detectedNumber = null;
     let textAnchor = null;
     const textMask = new Uint8Array(rw * rh);
@@ -989,9 +988,7 @@
       }
     }
 
-    // パターンB: 実際のCAD白黒図面
-    // 中間の通り芯（線を通過して突き抜けている線）を無視し、
-    // 「寸法線の水平線が途切れる末端（または目盛り端部）」を直接トラッキング
+    // パターンB: CAD図面（ユーザーの指囲み左右端をガイドとして本物の目盛り線へ直接スナップ）
     if (!detectedP1 || !detectedP2) {
       const cleanLine = new Uint8Array(rw * rh);
       for (let i = 0; i < rw * rh; i++) {
@@ -1000,7 +997,7 @@
         }
       }
 
-      // 1. 文字アンカー近傍を通る主寸法線（水平線）のY座標を特定
+      // 1. 主寸法線（水平ベースライン）のY座標を特定
       let baselineY = -1;
       let maxHLineRun = 0;
 
@@ -1012,7 +1009,7 @@
         for (let x = 0; x < rw; x++) {
           if (cleanLine[y * rw + x] === 1) run++;
         }
-        if (run > maxHLineRun && run > rw * 0.25) {
+        if (run > maxHLineRun && run > rw * 0.20) {
           maxHLineRun = run;
           baselineY = y;
         }
@@ -1022,74 +1019,44 @@
         baselineY = textAnchor ? Math.round(textAnchor.cy) : Math.round(rh / 2);
       }
 
-      const textCenterX = textAnchor ? textAnchor.cx : rw / 2;
+      // 2. ユーザーがドラッグ開始した左端（minX）と、指を離した右端（maxX）の近傍を探索
+      const userGuideLeft = minX - rx;
+      const userGuideRight = maxX - rx;
 
-      // 2. 左側方向への線追跡（水平線がどこまで続いているか）
-      let leftEndCol = -1;
-      let gapCount = 0;
-      for (let x = Math.round(textCenterX); x >= 4; x--) {
-        let hasH = false;
-        // 上下±3px以内で水平成分が存在するか
-        for (let dy = -3; dy <= 3; dy++) {
-          if (cleanLine[(baselineY + dy) * rw + x] === 1) { hasH = true; break; }
-        }
-        if (hasH) {
-          gapCount = 0;
-          leftEndCol = x;
-        } else {
-          gapCount++;
-          // 8px以上水平線が途切れたら、そこが寸法線の左端
-          if (gapCount >= 8 && leftEndCol !== -1) {
-            break;
-          }
-        }
-      }
-
-      // 3. 右側方向への線追跡（水平線がどこまで続いているか）
-      let rightEndCol = -1;
-      gapCount = 0;
-      for (let x = Math.round(textCenterX); x < rw - 4; x++) {
-        let hasH = false;
-        for (let dy = -3; dy <= 3; dy++) {
-          if (cleanLine[(baselineY + dy) * rw + x] === 1) { hasH = true; break; }
-        }
-        if (hasH) {
-          gapCount = 0;
-          rightEndCol = x;
-        } else {
-          gapCount++;
-          // 8px以上水平線が途切れたら、そこが寸法線の右端
-          if (gapCount >= 8 && rightEndCol !== -1) {
-            break;
-          }
-        }
-      }
-
-      // 4. 端部付近（±10px）にある目盛り線（縦線または交点）へピンポイント吸着
-      const snapToNearbyVLine = (targetX) => {
-        let bestX = targetX;
-        let maxVRun = 0;
-        for (let dx = -10; dx <= 10; dx++) {
-          const curX = targetX + dx;
+      // ガイド近傍（±35px）にある「最も強い垂直目盛り線・交点」を探す関数
+      const findBestSnapNear = (guideX) => {
+        let bestX = guideX;
+        let maxScore = -1;
+        for (let dx = -35; dx <= 35; dx++) {
+          const curX = Math.round(guideX + dx);
           if (curX < 2 || curX >= rw - 2) continue;
+
           let vRun = 0;
           for (let vy = -14; vy <= 14; vy++) {
             if (baselineY + vy >= 0 && baselineY + vy < rh && cleanLine[(baselineY + vy) * rw + curX] === 1) {
               vRun++;
             }
           }
-          if (vRun > maxVRun && vRun >= 6) {
-            maxVRun = vRun;
+
+          // 斜めスラッシュ（45度）の検出
+          let slashRun = 0;
+          for (let d = -6; d <= 6; d++) {
+            if (baselineY + d >= 0 && baselineY + d < rh && curX + d >= 0 && curX + d < rw) {
+              if (cleanLine[(baselineY + d) * rw + (curX + d)] === 1) slashRun++;
+            }
+          }
+
+          const score = Math.max(vRun, slashRun * 1.5) - Math.abs(dx) * 0.15;
+          if (score > maxScore && (vRun >= 5 || slashRun >= 4)) {
+            maxScore = score;
             bestX = curX;
           }
         }
         return { x: rx + bestX, y: ry + baselineY };
       };
 
-      if (leftEndCol !== -1 && rightEndCol !== -1 && rightEndCol - leftEndCol > 30) {
-        detectedP1 = snapToNearbyVLine(leftEndCol);
-        detectedP2 = snapToNearbyVLine(rightEndCol);
-      }
+      detectedP1 = findBestSnapNear(userGuideLeft);
+      detectedP2 = findBestSnapNear(userGuideRight);
     }
 
     if (detectedP1 && detectedP2 && dist(detectedP1, detectedP2) > 20) {
@@ -1119,7 +1086,7 @@
     closeMemoPanel();
     calibModal.style.display = 'block';
     calibInput.focus();
-    statusMsg.innerText = "寸法線の端点を自動認識しました。「決定」を押してください";
+    statusMsg.innerText = "寸法交点と数値を高精度認識しました。「決定」を押してください";
   }
 
   // --- タッチ & マウス入力判定 ---
