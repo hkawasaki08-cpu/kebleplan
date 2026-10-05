@@ -17,6 +17,7 @@
     --primary-dark: #0369a1;
     --accent: #f59e0b;
     --danger: #ef4444;
+    --success: #10b981;
     --bg-dark: #0b1120;
     --panel-bg: rgba(15, 23, 42, 0.92);
     --text-light: #f8fafc;
@@ -54,7 +55,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 10px;
+    padding: 0 8px;
     border-bottom: 1px solid var(--border-ui);
     z-index: 25;
     flex-shrink: 0;
@@ -62,13 +63,13 @@
   .title-area {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     font-weight: 700;
-    font-size: 14px;
+    font-size: 13px;
   }
   .badge-scale {
-    font-size: 11px;
-    padding: 2px 6px;
+    font-size: 10px;
+    padding: 2px 5px;
     background: #1e293b;
     border: 1px solid #475569;
     border-radius: 4px;
@@ -76,7 +77,7 @@
   }
   .header-actions {
     display: flex;
-    gap: 6px;
+    gap: 5px;
   }
 
   /* ボタン共通 */
@@ -84,9 +85,9 @@
     background: #1e293b;
     color: #f8fafc;
     border: 1px solid var(--border-ui);
-    padding: 5px 9px;
+    padding: 5px 8px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     display: inline-flex;
     align-items: center;
@@ -111,6 +112,10 @@
     background: #991b1b;
     border-color: var(--danger);
   }
+  button.success {
+    background: #059669;
+    border-color: var(--success);
+  }
 
   /* メイン作業ビューポート */
   #viewport {
@@ -131,33 +136,44 @@
   /* 大型・高視認性 測定距離ウィンドウ */
   #mainDistancePanel {
     position: absolute;
-    top: 10px;
+    top: 8px;
     left: 50%;
     transform: translateX(-50%);
     background: rgba(15, 23, 42, 0.95);
     border: 2px solid #0284c7;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
     border-radius: 10px;
-    padding: 6px 16px;
+    padding: 5px 12px;
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
     z-index: 24;
     pointer-events: auto;
   }
+  .dist-display-box {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
   #statDistance {
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     color: #38bdf8;
-    letter-spacing: 0.5px;
+    line-height: 1.1;
   }
-  #btnUnitToggle {
-    font-size: 12px;
-    padding: 3px 8px;
-    background: #0f172a;
-    border: 1px solid #38bdf8;
-    color: #f8fafc;
+  #statBreakdown {
+    font-size: 10px;
+    color: #94a3b8;
+  }
+  .dist-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .sub-btn {
+    font-size: 10px;
+    padding: 2px 6px;
     border-radius: 4px;
   }
 
@@ -215,10 +231,10 @@
   /* D-Pad */
   #dpad {
     position: absolute;
-    left: 12px;
-    bottom: 100px;
-    width: 86px;
-    height: 86px;
+    left: 10px;
+    bottom: 96px;
+    width: 84px;
+    height: 84px;
     background: rgba(15, 23, 42, 0.7);
     border-radius: 50%;
     border: 1px solid rgba(255,255,255,0.15);
@@ -243,18 +259,18 @@
   /* ズームコントローラ */
   #zoomControls {
     position: absolute;
-    right: 12px;
-    bottom: 100px;
+    right: 10px;
+    bottom: 96px;
     display: flex;
     flex-direction: column;
     gap: 6px;
     z-index: 30;
   }
   .circle-btn {
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 38px;
     border-radius: 50%;
-    font-size: 18px;
+    font-size: 17px;
     padding: 0;
   }
 
@@ -262,10 +278,10 @@
   #bottomBar {
     background: var(--panel-bg);
     border-top: 1px solid var(--border-ui);
-    padding: 8px 10px;
+    padding: 6px 10px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     z-index: 25;
     backdrop-filter: blur(12px);
   }
@@ -273,23 +289,23 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 6px;
   }
   .mode-selector {
     display: flex;
     flex: 1;
     background: #0f172a;
-    padding: 3px;
+    padding: 2px;
     border-radius: 8px;
     border: 1px solid var(--border-ui);
-    gap: 4px;
+    gap: 3px;
   }
   .mode-selector button {
     flex: 1;
     border: none;
     background: transparent;
-    padding: 7px 4px;
-    font-size: 12px;
+    padding: 6px 2px;
+    font-size: 11px;
     border-radius: 6px;
   }
   .mode-selector button.active {
@@ -322,48 +338,48 @@
     background: #0f172a;
     border: 1px solid var(--border-ui);
     border-radius: 12px;
-    padding: 18px;
+    padding: 16px;
     box-shadow: 0 16px 32px rgba(0,0,0,0.5);
   }
   .modal-title {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
     color: #f8fafc;
   }
   .preset-badges {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin: 12px 0;
+    margin: 10px 0;
   }
   .badge-btn {
     background: #1e293b;
     border: 1px solid #334155;
     color: #38bdf8;
-    padding: 5px 9px;
+    padding: 4px 8px;
     border-radius: 6px;
     font-size: 12px;
   }
   .text-input {
     width: 100%;
-    padding: 10px;
+    padding: 8px 10px;
     background: #1e293b;
     border: 1px solid var(--border-ui);
     color: #fff;
-    font-size: 16px;
+    font-size: 15px;
     border-radius: 6px;
     outline: none;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
   .modal-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 6px;
   }
   .toast {
     position: fixed;
-    top: 56px;
+    top: 54px;
     left: 50%;
     transform: translateX(-50%);
     background: rgba(2, 132, 199, 0.95);
@@ -389,7 +405,8 @@
     <div class="header-actions">
       <label class="btn-label" for="fileInput">📁 図面</label>
       <input type="file" id="fileInput" accept="image/*,application/pdf" style="display:none;">
-      <button id="btnSetScale" class="accent">📏 縮尺設定(案A)</button>
+      <button id="btnSetScale" class="accent">📏 縮尺</button>
+      <button id="btnExportImage" class="success">📷 出力</button>
       <button id="btnLogModal">📋 ログ</button>
     </div>
   </header>
@@ -398,10 +415,16 @@
   <div id="viewport">
     <canvas id="drawingCanvas"></canvas>
 
-    <!-- 大型 測定距離表示 -->
+    <!-- 大型 測定距離ウィンドウ ＋ 余長情報 -->
     <div id="mainDistancePanel">
-      <span id="statDistance">0.00 m</span>
-      <button id="btnUnitToggle">m</button>
+      <div class="dist-display-box">
+        <span id="statDistance">0.00 m</span>
+        <span id="statBreakdown">水平: 0.00m | 余長: 0.00m</span>
+      </div>
+      <div class="dist-actions">
+        <button id="btnUnitToggle" class="sub-btn">m</button>
+        <button id="btnOpenExtra" class="sub-btn" style="background:#0369a1; border-color:#38bdf8;">+余長</button>
+      </div>
     </div>
 
     <!-- 拡大ルーペ（案A） -->
@@ -425,7 +448,7 @@
     <div id="zoomControls">
       <button id="btnZoomIn" class="circle-btn">＋</button>
       <button id="btnZoomOut" class="circle-btn">－</button>
-      <button id="btnZoomReset" class="circle-btn" style="font-size:11px;">Fit</button>
+      <button id="btnZoomReset" class="circle-btn" style="font-size:10px;">Fit</button>
     </div>
   </div>
 
@@ -437,11 +460,13 @@
         <button id="modeTrace">③なぞる</button>
         <button id="modeView">閲覧/移動</button>
       </div>
+      <!-- 直交アシスト（オルソ）切替トグル -->
+      <button id="btnOrthoToggle" style="font-size:11px; padding:6px 10px;">直交: OFF</button>
     </div>
     <div class="toolbar-row">
       <button id="btnUndo" style="flex:1;">↶ 1手戻す</button>
       <button id="btnClear" class="danger" style="flex:1;">✕ クリア</button>
-      <button id="btnSaveLog" class="active" style="flex:1.5;">💾 記録保存</button>
+      <button id="btnSaveLog" class="active" style="flex:1.4;">💾 記録保存</button>
     </div>
   </div>
 </div>
@@ -450,16 +475,16 @@
 <div id="scaleModal" class="modal-overlay">
   <div class="modal-box">
     <div class="modal-title">縮尺実寸法（mm）の入力</div>
-    <p style="font-size:12px; color:#94a3b8; margin-bottom:8px;">指定した2点間の設計寸法を入力または選択してください。</p>
+    <p style="font-size:11px; color:#94a3b8; margin-bottom:8px;">指定した2点間の設計寸法を入力してください。</p>
     <input type="number" id="scaleInputMm" class="text-input" placeholder="例: 3640">
     <div class="preset-badges">
-      <button class="badge-btn" data-val="910">910</button>
-      <button class="badge-btn" data-val="1820">1820</button>
-      <button class="badge-btn" data-val="2730">2730</button>
-      <button class="badge-btn" data-val="3640">3640</button>
-      <button class="badge-btn" data-val="4550">4550</button>
-      <button class="badge-btn" data-val="9100">9100</button>
-      <button class="badge-btn" data-val="12300">12300</button>
+      <button class="badge-btn scale-badge" data-val="910">910</button>
+      <button class="badge-btn scale-badge" data-val="1820">1820</button>
+      <button class="badge-btn scale-badge" data-val="2730">2730</button>
+      <button class="badge-btn scale-badge" data-val="3640">3640</button>
+      <button class="badge-btn scale-badge" data-val="4550">4550</button>
+      <button class="badge-btn scale-badge" data-val="9100">9100</button>
+      <button class="badge-btn scale-badge" data-val="12300">12300</button>
     </div>
     <div class="modal-actions">
       <button id="btnCancelScale">キャンセル</button>
@@ -468,11 +493,33 @@
   </div>
 </div>
 
+<!-- 立ち上げ・余長（Z軸）入力モーダル -->
+<div id="extraModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">立ち上げ・盤内余長の加算 (m)</div>
+    <p style="font-size:11px; color:#94a3b8; margin-bottom:8px;">垂直寸法（立ち上がり・立ち下げ・盤内処理長）を設定します。</p>
+    <input type="number" step="0.1" id="extraInputM" class="text-input" placeholder="例: 2.5">
+    <div class="preset-badges">
+      <button class="badge-btn extra-badge" data-m="0">+0m</button>
+      <button class="badge-btn extra-badge" data-m="1.0">+1.0m</button>
+      <button class="badge-btn extra-badge" data-m="1.5">+1.5m</button>
+      <button class="badge-btn extra-badge" data-m="2.0">+2.0m</button>
+      <button class="badge-btn extra-badge" data-m="2.5">+2.5m</button>
+      <button class="badge-btn extra-badge" data-m="3.0">+3.0m</button>
+      <button class="badge-btn extra-badge" data-m="5.0">+5.0m</button>
+    </div>
+    <div class="modal-actions">
+      <button id="btnCancelExtra">閉じる</button>
+      <button id="btnConfirmExtra" class="accent">適用</button>
+    </div>
+  </div>
+</div>
+
 <!-- 計測ログモーダル -->
 <div id="logModal" class="modal-overlay">
   <div class="modal-box" style="max-height:80dvh; display:flex; flex-direction:column;">
     <div class="modal-title">計測履歴・メモ</div>
-    <div id="logList" style="flex:1; overflow-y:auto; font-size:12px; margin-bottom:12px; border:1px solid #334155; padding:6px; border-radius:6px; background:#1e293b;">
+    <div id="logList" style="flex:1; overflow-y:auto; font-size:11px; margin-bottom:12px; border:1px solid #334155; padding:6px; border-radius:6px; background:#1e293b;">
       記録がありません
     </div>
     <div class="modal-actions">
@@ -522,9 +569,11 @@ function loadStorage(key) {
   });
 }
 
-// 状態管理
+// アプリケーション状態
 const state = {
   mode: 'corner', // 'corner' | 'trace' | 'view' | 'scale'
+  orthoMode: false, // 直交アシスト
+  extraLengthM: 0,  // 立ち上げ・余長 (m)
   scalePxPerMm: 0,
   unit: 'm', // 'm' | 'mm'
   viewX: 0,
@@ -579,17 +628,17 @@ function render() {
     ctx.drawImage(state.planImage, 0, 0, canvas.width, canvas.height);
   }
 
-  // 確定済みルート
+  // 確定ルート描画（寸法数値テキスト付き）
   state.routes.forEach(route => {
-    drawPath(route.points, '#0284c7', 3.5 / state.zoom);
+    drawPath(route.points, '#0284c7', 3.5 / state.zoom, false, true);
   });
 
-  // 計測中ルート
+  // 計測中ルート描画
   if (state.currentPoints.length > 0) {
-    drawPath(state.currentPoints, '#38bdf8', 3.5 / state.zoom, true);
+    drawPath(state.currentPoints, '#38bdf8', 3.5 / state.zoom, true, true);
   }
 
-  // 縮尺2点
+  // 縮尺指定マーカー描画
   if (state.scalePoints.length > 0) {
     drawScaleMarkers();
   }
@@ -597,7 +646,10 @@ function render() {
   updateStats();
 }
 
-function drawPath(pts, color, lineWidth, active = false) {
+/**
+ * パス描画 ＋ 区間寸法ラベルのレンダリング
+ */
+function drawPath(pts, color, lineWidth, active = false, showSegmentDist = true) {
   if (pts.length === 0) return;
   ctx.save();
   ctx.strokeStyle = color;
@@ -612,6 +664,7 @@ function drawPath(pts, color, lineWidth, active = false) {
   }
   ctx.stroke();
 
+  // ノード点
   pts.forEach((pt, idx) => {
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, Math.max(4.5 / state.zoom, 3), 0, Math.PI * 2);
@@ -621,6 +674,35 @@ function drawPath(pts, color, lineWidth, active = false) {
     ctx.lineWidth = 1.5 / state.zoom;
     ctx.stroke();
   });
+
+  // 区間寸法ラベル描画
+  if (showSegmentDist && state.scalePxPerMm && pts.length > 1) {
+    ctx.font = `bold ${Math.max(10 / state.zoom, 9)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+
+    for (let i = 1; i < pts.length; i++) {
+      const p1 = pts[i - 1];
+      const p2 = pts[i];
+      const segPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const segMm = segPx / state.scalePxPerMm;
+      if (segPx * state.zoom < 25) continue; // 画面上で小さすぎる場合は省略
+
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      const text = state.unit === 'm' ? `${(segMm / 1000).toFixed(2)}m` : `${Math.round(segMm)}`;
+
+      // ラベル背景
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      const textWidth = ctx.measureText(text).width;
+      ctx.fillRect(midX - textWidth / 2 - 3 / state.zoom, midY - 14 / state.zoom, textWidth + 6 / state.zoom, 13 / state.zoom);
+
+      // ラベル文字
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillText(text, midX, midY - 2 / state.zoom);
+    }
+  }
+
   ctx.restore();
 }
 
@@ -693,6 +775,27 @@ function snapToIntersection(targetX, targetY) {
   return { x: targetX, y: targetY };
 }
 
+/**
+ * 直交アシスト（オルソ補正）
+ * 直前の点がある場合、X軸またはY軸のズレが小さい方を強制一致させて直角を維持
+ */
+function applyOrthoSnap(targetPt) {
+  if (!state.orthoMode || state.currentPoints.length === 0) {
+    return targetPt;
+  }
+  const lastPt = state.currentPoints[state.currentPoints.length - 1];
+  const dx = Math.abs(targetPt.x - lastPt.x);
+  const dy = Math.abs(targetPt.y - lastPt.y);
+
+  if (dx >= dy) {
+    // 水平方向を維持
+    return { x: targetPt.x, y: lastPt.y };
+  } else {
+    // 垂直方向を維持
+    return { x: lastPt.x, y: targetPt.y };
+  }
+}
+
 function updateLoupe(screenX, screenY, canvasX, canvasY) {
   loupe.style.display = 'block';
   const offsetTop = 75;
@@ -740,9 +843,8 @@ let isMultiTouch = false;
 let pinchStartDistance = 0;
 let pinchStartZoom = 1;
 let pinchCenterCanvas = { x: 0, y: 0 };
-let currentTargetSnapped = null; // 照準合わせ中の確定吸着点
+let currentTargetSnapped = null;
 
-// ピンチイン・アウト（中心位置固定ズーム）
 viewport.addEventListener('touchstart', (e) => {
   if (e.touches.length >= 2) {
     isMultiTouch = true;
@@ -795,7 +897,6 @@ viewport.addEventListener('touchend', (e) => {
   }
 }, { passive: true });
 
-// 単一ポインター（照準合わせ & 静止判定打点）
 viewport.addEventListener('pointerdown', (e) => {
   if (isMultiTouch) return;
   if (e.target !== canvas && e.target !== viewport) return;
@@ -808,8 +909,10 @@ viewport.addEventListener('pointerdown', (e) => {
   const coords = getCanvasCoords(e.clientX, e.clientY);
 
   if (state.mode === 'scale' || state.mode === 'corner') {
-    currentTargetSnapped = snapToIntersection(coords.x, coords.y);
-    updateLoupe(e.clientX, e.clientY, currentTargetSnapped.x, currentTargetSnapped.y);
+    let snapped = snapToIntersection(coords.x, coords.y);
+    if (state.mode === 'corner') snapped = applyOrthoSnap(snapped);
+    currentTargetSnapped = snapped;
+    updateLoupe(e.clientX, e.clientY, snapped.x, snapped.y);
   } else if (state.mode === 'trace') {
     state.currentPoints.push({ x: coords.x, y: coords.y });
     render();
@@ -834,9 +937,10 @@ viewport.addEventListener('pointermove', (e) => {
   }
 
   if (state.mode === 'scale' || state.mode === 'corner') {
-    // 指を動かしている間、リアルタイムに照準ルーペを追従・吸着更新
-    currentTargetSnapped = snapToIntersection(coords.x, coords.y);
-    updateLoupe(e.clientX, e.clientY, currentTargetSnapped.x, currentTargetSnapped.y);
+    let snapped = snapToIntersection(coords.x, coords.y);
+    if (state.mode === 'corner') snapped = applyOrthoSnap(snapped);
+    currentTargetSnapped = snapped;
+    updateLoupe(e.clientX, e.clientY, snapped.x, snapped.y);
     lastPointerPos = { x: e.clientX, y: e.clientY };
     lastMoveTime = now;
   } else if (state.mode === 'trace') {
@@ -856,14 +960,12 @@ viewport.addEventListener('pointerup', (e) => {
   const timeSinceLastMove = now - lastMoveTime;
   const distFromStart = Math.hypot(e.clientX - startPointerPos.x, e.clientY - startPointerPos.y);
 
-  // 【静止判定ロジック】
-  // 1. 直前の静止時間（指を止めてから離したか: timeSinceLastMove >= 60ms）
-  // 2. または、指が最初からほとんど動いていない純粋タップ（distFromStart < 12px）
-  // どちらかを満たせば「狙いを定めて静止し、指を離した」と判断して打点
+  // 静止判定
   const isStationaryRelease = (timeSinceLastMove >= 60) || (distFromStart < 12);
 
   if ((state.mode === 'corner' || state.mode === 'scale') && isStationaryRelease) {
-    const targetPt = currentTargetSnapped || snapToIntersection(getCanvasCoords(e.clientX, e.clientY).x, getCanvasCoords(e.clientX, e.clientY).y);
+    let targetPt = currentTargetSnapped || snapToIntersection(getCanvasCoords(e.clientX, e.clientY).x, getCanvasCoords(e.clientX, e.clientY).y);
+    if (state.mode === 'corner') targetPt = applyOrthoSnap(targetPt);
 
     if (state.mode === 'scale') {
       state.scalePoints.push(targetPt);
@@ -881,7 +983,7 @@ viewport.addEventListener('pointerup', (e) => {
 });
 
 /**
- * 距離計算・表示更新
+ * 距離計算・表示（水平 + 立ち上げ余長）
  */
 function calculateDistance(pts) {
   if (pts.length < 2) return 0;
@@ -890,21 +992,130 @@ function calculateDistance(pts) {
     pxTotal += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   }
   if (!state.scalePxPerMm) return pxTotal;
-  return pxTotal / state.scalePxPerMm;
+  return pxTotal / state.scalePxPerMm; // mm
 }
 
 function updateStats() {
-  const mm = calculateDistance(state.currentPoints);
+  const horizontalMm = calculateDistance(state.currentPoints);
+  const extraMm = state.extraLengthM * 1000;
+  const totalMm = horizontalMm > 0 ? (horizontalMm + extraMm) : 0;
+
   const statEl = document.getElementById('statDistance');
+  const breakdownEl = document.getElementById('statBreakdown');
+
   if (!state.scalePxPerMm) {
-    statEl.textContent = `${Math.round(mm)} px`;
+    statEl.textContent = `${Math.round(horizontalMm)} px`;
+    breakdownEl.textContent = '縮尺を設定してください';
     return;
   }
+
   if (state.unit === 'm') {
-    statEl.textContent = `${(mm / 1000).toFixed(2)} m`;
+    statEl.textContent = `${(totalMm / 1000).toFixed(2)} m`;
+    breakdownEl.textContent = `水平: ${(horizontalMm / 1000).toFixed(2)}m | 余長: ${state.extraLengthM.toFixed(1)}m`;
   } else {
-    statEl.textContent = `${Math.round(mm)} mm`;
+    statEl.textContent = `${Math.round(totalMm)} mm`;
+    breakdownEl.textContent = `水平: ${Math.round(horizontalMm)}mm | 余長: ${Math.round(extraMm)}mm`;
   }
+}
+
+/**
+ * 図面画像エクスポート（寸法・ルート入りPNG）
+ */
+document.getElementById('btnExportImage').addEventListener('click', () => {
+  if (!state.planImage) {
+    showToast('図面が読み込まれていません');
+    return;
+  }
+
+  showToast('画像生成中...');
+
+  // エクスポート用の一時フルサイズキャンバス
+  const expCanvas = document.createElement('canvas');
+  expCanvas.width = state.planWidth;
+  expCanvas.height = state.planHeight;
+  const expCtx = expCanvas.getContext('2d');
+
+  // 1. 元図面描画
+  expCtx.drawImage(state.planImage, 0, 0, expCanvas.width, expCanvas.height);
+
+  // 2. 確定ルート描画
+  state.routes.forEach(route => {
+    drawExportPath(expCtx, route.points, '#0284c7', 4);
+  });
+  // 3. 現在の計測中ルート描画
+  if (state.currentPoints.length > 0) {
+    drawExportPath(expCtx, state.currentPoints, '#38bdf8', 4);
+  }
+
+  // 4. 合計情報スタンプを左上に配置
+  const hMm = calculateDistance(state.currentPoints);
+  const totalM = ((hMm + state.extraLengthM * 1000) / 1000).toFixed(2);
+  const stampText = `H M-r 計測: ${totalM} m (水平:${(hMm/1000).toFixed(2)}m + 余長:${state.extraLengthM.toFixed(1)}m)`;
+
+  expCtx.save();
+  expCtx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+  expCtx.fillRect(20, 20, 420, 50);
+  expCtx.fillStyle = '#38bdf8';
+  expCtx.font = 'bold 20px sans-serif';
+  expCtx.fillText(stampText, 35, 52);
+  expCtx.restore();
+
+  // ダウンロード処理
+  const link = document.createElement('a');
+  link.download = `plan_measured_${Date.now()}.png`;
+  link.href = expCanvas.toDataURL('image/png');
+  link.click();
+  showToast('画像をエクスポートしました');
+});
+
+function drawExportPath(eCtx, pts, color, lineWidth) {
+  if (pts.length === 0) return;
+  eCtx.save();
+  eCtx.strokeStyle = color;
+  eCtx.lineWidth = lineWidth;
+  eCtx.lineCap = 'round';
+  eCtx.lineJoin = 'round';
+
+  eCtx.beginPath();
+  eCtx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) {
+    eCtx.lineTo(pts[i].x, pts[i].y);
+  }
+  eCtx.stroke();
+
+  pts.forEach(pt => {
+    eCtx.beginPath();
+    eCtx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+    eCtx.fillStyle = '#38bdf8';
+    eCtx.fill();
+    eCtx.strokeStyle = '#fff';
+    eCtx.lineWidth = 2;
+    eCtx.stroke();
+  });
+
+  // 区間寸法ラベル描画
+  if (state.scalePxPerMm && pts.length > 1) {
+    eCtx.font = 'bold 16px sans-serif';
+    eCtx.textAlign = 'center';
+    eCtx.textBaseline = 'bottom';
+
+    for (let i = 1; i < pts.length; i++) {
+      const p1 = pts[i - 1];
+      const p2 = pts[i];
+      const segMm = Math.hypot(p2.x - p1.x, p2.y - p1.y) / state.scalePxPerMm;
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      const text = state.unit === 'm' ? `${(segMm / 1000).toFixed(2)}m` : `${Math.round(segMm)}`;
+
+      eCtx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      const tWidth = eCtx.measureText(text).width;
+      eCtx.fillRect(midX - tWidth / 2 - 4, midY - 22, tWidth + 8, 20);
+
+      eCtx.fillStyle = '#ffffff';
+      eCtx.fillText(text, midX, midY - 4);
+    }
+  }
+  eCtx.restore();
 }
 
 /**
@@ -964,6 +1175,44 @@ function applyLoadedPlan(img, rawDataUrl) {
 }
 
 /**
+ * 直交アシスト（オルソ）トグル
+ */
+const btnOrthoToggle = document.getElementById('btnOrthoToggle');
+btnOrthoToggle.addEventListener('click', () => {
+  state.orthoMode = !state.orthoMode;
+  btnOrthoToggle.textContent = state.orthoMode ? '直交: ON' : '直交: OFF';
+  btnOrthoToggle.classList.toggle('active', state.orthoMode);
+  showToast(state.orthoMode ? '直交アシストON (水平・垂直固定)' : '直交アシストOFF');
+});
+
+/**
+ * 立ち上げ・余長モーダル
+ */
+const extraModal = document.getElementById('extraModal');
+const extraInputM = document.getElementById('extraInputM');
+
+document.getElementById('btnOpenExtra').addEventListener('click', () => {
+  extraInputM.value = state.extraLengthM || '';
+  extraModal.classList.add('open');
+});
+
+document.querySelectorAll('.extra-badge').forEach(btn => {
+  btn.addEventListener('click', () => {
+    extraInputM.value = btn.dataset.m;
+  });
+});
+
+document.getElementById('btnConfirmExtra').addEventListener('click', () => {
+  state.extraLengthM = parseFloat(extraInputM.value) || 0;
+  extraModal.classList.remove('open');
+  updateStats();
+  showToast(`余長 ${state.extraLengthM.toFixed(1)}m を加算`);
+});
+document.getElementById('btnCancelExtra').addEventListener('click', () => {
+  extraModal.classList.remove('open');
+});
+
+/**
  * 縮尺設定モーダル
  */
 const scaleModal = document.getElementById('scaleModal');
@@ -974,7 +1223,7 @@ function openScaleModal() {
   scaleModal.classList.add('open');
 }
 
-document.querySelectorAll('.badge-btn').forEach(btn => {
+document.querySelectorAll('.scale-badge').forEach(btn => {
   btn.addEventListener('click', () => {
     scaleInputMm.value = btn.dataset.val;
   });
@@ -1054,6 +1303,7 @@ document.getElementById('btnUnitToggle').addEventListener('click', () => {
   state.unit = state.unit === 'm' ? 'mm' : 'm';
   document.getElementById('btnUnitToggle').textContent = state.unit;
   updateStats();
+  render();
 });
 
 // 記録保存 & ログ
@@ -1062,13 +1312,10 @@ document.getElementById('btnSaveLog').addEventListener('click', () => {
     showToast('計測点が不足しています');
     return;
   }
-  const dist = calculateDistance(state.currentPoints);
-  const formatted = state.scalePxPerMm
-    ? (state.unit === 'm' ? `${(dist / 1000).toFixed(2)} m` : `${Math.round(dist)} mm`)
-    : `${Math.round(dist)} px`;
-
+  const hMm = calculateDistance(state.currentPoints);
+  const totalM = ((hMm + state.extraLengthM * 1000) / 1000).toFixed(2);
   const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const entry = `[${timeStr}] 計測: ${formatted} (点数: ${state.currentPoints.length})`;
+  const entry = `[${timeStr}] 合計: ${totalM}m (水平:${(hMm/1000).toFixed(2)}m + 余長:${state.extraLengthM.toFixed(1)}m, 点数:${state.currentPoints.length})`;
 
   state.logs.push(entry);
   state.routes.push({ points: [...state.currentPoints] });
@@ -1110,7 +1357,7 @@ document.querySelectorAll('.dbtn').forEach(btn => {
   });
 });
 
-// ズームボタン操作
+// ズーム操作
 document.getElementById('btnZoomIn').addEventListener('click', () => {
   const cx = viewport.clientWidth / 2;
   const cy = viewport.clientHeight / 2;
