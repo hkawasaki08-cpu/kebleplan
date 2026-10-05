@@ -17,8 +17,8 @@
     --primary-dark: #0369a1;
     --accent: #f59e0b;
     --danger: #ef4444;
-    --bg-dark: #0f172a;
-    --panel-bg: rgba(15, 23, 42, 0.88);
+    --bg-dark: #0b1120;
+    --panel-bg: rgba(15, 23, 42, 0.92);
     --text-light: #f8fafc;
     --border-ui: #334155;
   }
@@ -46,7 +46,7 @@
     position: relative;
   }
 
-  /* 画面上部ヘッダー */
+  /* 上部ヘッダー */
   header {
     height: 44px;
     background: var(--panel-bg);
@@ -56,7 +56,7 @@
     justify-content: space-between;
     padding: 0 10px;
     border-bottom: 1px solid var(--border-ui);
-    z-index: 20;
+    z-index: 25;
     flex-shrink: 0;
   }
   .title-area {
@@ -79,7 +79,7 @@
     gap: 6px;
   }
 
-  /* 共通ボタン */
+  /* ボタン共通 */
   button, .btn-label {
     background: #1e293b;
     color: #f8fafc;
@@ -112,7 +112,7 @@
     border-color: var(--danger);
   }
 
-  /* メイン作業エリア */
+  /* メイン作業ビューポート */
   #viewport {
     flex: 1;
     position: relative;
@@ -128,6 +128,39 @@
     cursor: crosshair;
   }
 
+  /* 大型・高視認性 測定距離ウィンドウ */
+  #mainDistancePanel {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.95);
+    border: 2px solid #0284c7;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    border-radius: 10px;
+    padding: 6px 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    z-index: 24;
+    pointer-events: auto;
+  }
+  #statDistance {
+    font-size: 26px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: #38bdf8;
+    letter-spacing: 0.5px;
+  }
+  #btnUnitToggle {
+    font-size: 12px;
+    padding: 3px 8px;
+    background: #0f172a;
+    border: 1px solid #38bdf8;
+    color: #f8fafc;
+    border-radius: 4px;
+  }
+
   /* 拡大ルーペ（案A照準拡大鏡） */
   #loupe {
     position: absolute;
@@ -135,7 +168,7 @@
     height: 140px;
     border-radius: 50%;
     border: 3px solid #38bdf8;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.6), inset 0 0 10px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
     pointer-events: none;
     display: none;
     z-index: 100;
@@ -146,7 +179,6 @@
     width: 100%;
     height: 100%;
   }
-  /* 照準十字線オーバーレイ */
   .loupe-reticle {
     position: absolute;
     top: 50%;
@@ -180,60 +212,11 @@
     left: -8px;
   }
 
-  /* 下部操作ツールバー */
-  #bottomBar {
-    background: var(--panel-bg);
-    border-top: 1px solid var(--border-ui);
-    padding: 8px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 20;
-    backdrop-filter: blur(12px);
-  }
-  .toolbar-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-  }
-  .mode-selector {
-    display: flex;
-    background: #0f172a;
-    padding: 2px;
-    border-radius: 8px;
-    border: 1px solid var(--border-ui);
-    gap: 2px;
-  }
-  .mode-selector button {
-    border: none;
-    background: transparent;
-    padding: 5px 8px;
-    font-size: 11px;
-    border-radius: 6px;
-  }
-  .mode-selector button.active {
-    background: var(--primary);
-  }
-
-  .stats-panel {
-    font-size: 13px;
-    font-weight: 700;
-    color: #38bdf8;
-    background: #090d16;
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1px solid #1e293b;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  /* フローティングD-Pad */
+  /* D-Pad */
   #dpad {
     position: absolute;
     left: 12px;
-    bottom: 95px;
+    bottom: 100px;
     width: 86px;
     height: 86px;
     background: rgba(15, 23, 42, 0.7);
@@ -249,33 +232,71 @@
     border: none;
     background: transparent;
     color: #94a3b8;
-    font-size: 10px;
+    font-size: 11px;
     padding: 0;
   }
   .dbtn:active {
     color: #fff;
-    background: rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.2);
   }
 
   /* ズームコントローラ */
   #zoomControls {
     position: absolute;
     right: 12px;
-    bottom: 95px;
+    bottom: 100px;
     display: flex;
     flex-direction: column;
     gap: 6px;
     z-index: 30;
   }
   .circle-btn {
-    width: 38px;
-    height: 38px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
-    font-size: 16px;
+    font-size: 18px;
     padding: 0;
   }
 
-  /* モーダル共通スタイル */
+  /* 下部操作ツールバー */
+  #bottomBar {
+    background: var(--panel-bg);
+    border-top: 1px solid var(--border-ui);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 25;
+    backdrop-filter: blur(12px);
+  }
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .mode-selector {
+    display: flex;
+    flex: 1;
+    background: #0f172a;
+    padding: 3px;
+    border-radius: 8px;
+    border: 1px solid var(--border-ui);
+    gap: 4px;
+  }
+  .mode-selector button {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 7px 4px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+  .mode-selector button.active {
+    background: var(--primary);
+  }
+
+  /* モーダル */
   .modal-overlay {
     position: fixed;
     top: 0;
@@ -320,7 +341,7 @@
     background: #1e293b;
     border: 1px solid #334155;
     color: #38bdf8;
-    padding: 4px 8px;
+    padding: 5px 9px;
     border-radius: 6px;
     font-size: 12px;
   }
@@ -342,7 +363,7 @@
   }
   .toast {
     position: fixed;
-    top: 54px;
+    top: 56px;
     left: 50%;
     transform: translateX(-50%);
     background: rgba(2, 132, 199, 0.95);
@@ -377,6 +398,12 @@
   <div id="viewport">
     <canvas id="drawingCanvas"></canvas>
 
+    <!-- 大型 測定距離表示 -->
+    <div id="mainDistancePanel">
+      <span id="statDistance">0.00 m</span>
+      <button id="btnUnitToggle">m</button>
+    </div>
+
     <!-- 拡大ルーペ（案A） -->
     <div id="loupe">
       <canvas id="loupeCanvas" width="140" height="140"></canvas>
@@ -398,7 +425,7 @@
     <div id="zoomControls">
       <button id="btnZoomIn" class="circle-btn">＋</button>
       <button id="btnZoomOut" class="circle-btn">－</button>
-      <button id="btnZoomReset" class="circle-btn" style="font-size:10px;">Fit</button>
+      <button id="btnZoomReset" class="circle-btn" style="font-size:11px;">Fit</button>
     </div>
   </div>
 
@@ -410,15 +437,11 @@
         <button id="modeTrace">③なぞる</button>
         <button id="modeView">閲覧/移動</button>
       </div>
-      <div class="stats-panel">
-        <span id="statDistance">0.00 m</span>
-        <button id="btnUnitToggle" style="padding:2px 6px; font-size:10px;">m</button>
-      </div>
     </div>
     <div class="toolbar-row">
-      <button id="btnUndo">↶ 1手戻す</button>
-      <button id="btnClear" class="danger">✕ クリア</button>
-      <button id="btnSaveLog" style="flex:1;">💾 記録保存</button>
+      <button id="btnUndo" style="flex:1;">↶ 1手戻す</button>
+      <button id="btnClear" class="danger" style="flex:1;">✕ クリア</button>
+      <button id="btnSaveLog" class="active" style="flex:1.5;">💾 記録保存</button>
     </div>
   </div>
 </div>
@@ -463,13 +486,12 @@
 
 <script>
 /**
- * H M-r 内部ロジック & IndexedDB管理
+ * IndexedDB 管理
  */
 const DB_NAME = 'HMr_PlanStore';
 const DB_VERSION = 1;
 let db = null;
 
-// IndexedDB 初期化
 function initDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -500,7 +522,7 @@ function loadStorage(key) {
   });
 }
 
-// アプリケーション状態
+// 状態管理
 const state = {
   mode: 'corner', // 'corner' | 'trace' | 'view' | 'scale'
   scalePxPerMm: 0,
@@ -508,18 +530,17 @@ const state = {
   viewX: 0,
   viewY: 0,
   zoom: 1,
-  minZoom: 0.1,
-  maxZoom: 6,
+  minZoom: 0.08,
+  maxZoom: 8,
   planImage: null,
   planWidth: 0,
   planHeight: 0,
-  routes: [],       // [{ points: [{x, y}], color }]
+  routes: [],
   currentPoints: [],
-  scalePoints: [],  // 縮尺指定用2点
+  scalePoints: [],
   logs: []
 };
 
-// DOM要素
 const viewport = document.getElementById('viewport');
 const canvas = document.getElementById('drawingCanvas');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -528,15 +549,14 @@ const loupeCanvas = document.getElementById('loupeCanvas');
 const loupeCtx = loupeCanvas.getContext('2d');
 const toastEl = document.getElementById('toast');
 
-// トースト通知
 function showToast(msg) {
   toastEl.textContent = msg;
   toastEl.style.opacity = '1';
   setTimeout(() => { toastEl.style.opacity = '0'; }, 2200);
 }
 
-// 画面解像度とiOS Safariメモリ制限（Max 2048px クランプ）
-const MAX_SAFE_CANVAS_DIM = 2300;
+// iOS Jetsam対策: Canvasサイズクランプ
+const MAX_SAFE_CANVAS_DIM = 2400;
 
 function setupCanvasSize(w, h) {
   let scale = 1;
@@ -549,30 +569,27 @@ function setupCanvasSize(w, h) {
   state.planHeight = canvas.height;
 }
 
-// 再描画
 function render() {
   if (!state.planWidth) return;
 
-  // Transform適用
   canvas.style.transform = `translate(${state.viewX}px, ${state.viewY}px) scale(${state.zoom})`;
 
-  // 背景クリア & 図面描画
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (state.planImage) {
     ctx.drawImage(state.planImage, 0, 0, canvas.width, canvas.height);
   }
 
-  // 確定済み動線の描画
+  // 確定済みルート
   state.routes.forEach(route => {
-    drawPath(route.points, '#0284c7', 3 / state.zoom);
+    drawPath(route.points, '#0284c7', 3.5 / state.zoom);
   });
 
-  // 計測中の動線描画
+  // 計測中ルート
   if (state.currentPoints.length > 0) {
-    drawPath(state.currentPoints, '#38bdf8', 3 / state.zoom, true);
+    drawPath(state.currentPoints, '#38bdf8', 3.5 / state.zoom, true);
   }
 
-  // 縮尺設定中の2点描画
+  // 縮尺2点
   if (state.scalePoints.length > 0) {
     drawScaleMarkers();
   }
@@ -580,7 +597,6 @@ function render() {
   updateStats();
 }
 
-// パス描画
 function drawPath(pts, color, lineWidth, active = false) {
   if (pts.length === 0) return;
   ctx.save();
@@ -596,10 +612,9 @@ function drawPath(pts, color, lineWidth, active = false) {
   }
   ctx.stroke();
 
-  // 各ノード点
   pts.forEach((pt, idx) => {
     ctx.beginPath();
-    ctx.arc(pt.x, pt.y, Math.max(4 / state.zoom, 3), 0, Math.PI * 2);
+    ctx.arc(pt.x, pt.y, Math.max(4.5 / state.zoom, 3), 0, Math.PI * 2);
     ctx.fillStyle = active && idx === pts.length - 1 ? '#ef4444' : '#38bdf8';
     ctx.fill();
     ctx.strokeStyle = '#fff';
@@ -609,7 +624,6 @@ function drawPath(pts, color, lineWidth, active = false) {
   ctx.restore();
 }
 
-// 縮尺マーカー描画
 function drawScaleMarkers() {
   ctx.save();
   ctx.strokeStyle = '#f59e0b';
@@ -634,15 +648,14 @@ function drawScaleMarkers() {
     ctx.stroke();
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${Math.max(12 / state.zoom, 10)}px sans-serif`;
+    ctx.font = `bold ${Math.max(13 / state.zoom, 11)}px sans-serif`;
     ctx.fillText(`P${i+1}`, pt.x + 8 / state.zoom, pt.y - 8 / state.zoom);
   });
   ctx.restore();
 }
 
 /**
- * 案A：マイクロ・サブピクセル吸着ロジック
- * 指が置かれた周辺（±15px）をスキャンし、交点（水平・垂直方向の高コントラスト変化）の中心を算出
+ * 案A：マイクロ吸着
  */
 function snapToIntersection(targetX, targetY) {
   const radius = 15;
@@ -659,12 +672,10 @@ function snapToIntersection(targetX, targetY) {
     const data = imgData.data;
     let sumX = 0, sumY = 0, count = 0;
 
-    // 暗部（黒線・交差部）の重心を探索
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const idx = (y * size + x) * 4;
         const brightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
-        // 黒線（輝度閾値120以下）
         if (brightness < 120) {
           sumX += x;
           sumY += y;
@@ -678,35 +689,27 @@ function snapToIntersection(targetX, targetY) {
       const cy = startY + (sumY / count);
       return { x: Math.round(cx * 10) / 10, y: Math.round(cy * 10) / 10 };
     }
-  } catch (e) {
-    // Canvas cross-origin等による例外保護
-  }
+  } catch (e) {}
   return { x: targetX, y: targetY };
 }
 
-/**
- * 案A：拡大鏡（ルーペ）描画
- */
 function updateLoupe(screenX, screenY, canvasX, canvasY) {
   loupe.style.display = 'block';
-  // 指の斜め上（Y-70, X+20）に配置
   const offsetTop = 75;
   const offsetLeft = 20;
   let posX = screenX + offsetLeft;
   let posY = screenY - offsetTop - 140;
 
-  // 画面端のオーバーフロー防止
   if (posY < 10) posY = screenY + 30;
   if (posX + 140 > window.innerWidth) posX = screenX - 160;
 
   loupe.style.left = `${posX}px`;
   loupe.style.top = `${posY}px`;
 
-  // ルーペ内描画（倍率2.5倍）
   const zoomFactor = 2.5;
   const sampleSize = 140 / zoomFactor;
   loupeCtx.clearRect(0, 0, 140, 140);
-  loupeCtx.imageSmoothingEnabled = false; // ピクセル・輪郭の視認性を最大化
+  loupeCtx.imageSmoothingEnabled = false;
 
   loupeCtx.drawImage(
     canvas,
@@ -719,9 +722,6 @@ function hideLoupe() {
   loupe.style.display = 'none';
 }
 
-/**
- * 座標変換
- */
 function getCanvasCoords(clientX, clientY) {
   const rect = viewport.getBoundingClientRect();
   const x = (clientX - rect.left - state.viewX) / state.zoom;
@@ -730,27 +730,88 @@ function getCanvasCoords(clientX, clientY) {
 }
 
 /**
- * タッチ／ポインターイベント管理
+ * タッチ・ポインター制御（暴発防止＆高精度ピンチズーム）
  */
-let isInteracting = false;
-let touchStartDist = 0;
-let lastTouchPos = { x: 0, y: 0 };
-let currentTargetPt = null;
+let isPointerDown = false;
+let startPointerPos = { x: 0, y: 0 };
+let lastPointerPos = { x: 0, y: 0 };
+let isMultiTouch = false;
+let pinchStartDistance = 0;
+let pinchStartZoom = 1;
+let pinchCenter = { x: 0, y: 0 };
+let pinchCenterCanvas = { x: 0, y: 0 };
 
+// ピンチイン・アウト（中心位置固定ズーム）
+viewport.addEventListener('touchstart', (e) => {
+  if (e.touches.length >= 2) {
+    isMultiTouch = true;
+    hideLoupe();
+
+    const t1 = e.touches[0];
+    const t2 = e.touches[1];
+    pinchStartDistance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    pinchStartZoom = state.zoom;
+
+    // 2指の中心スクリーン座標
+    pinchCenter = {
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2
+    };
+    // 中心座標における図面上の相対点（ここを中心に拡大する）
+    const rect = viewport.getBoundingClientRect();
+    pinchCenterCanvas = {
+      x: (pinchCenter.x - rect.left - state.viewX) / state.zoom,
+      y: (pinchCenter.y - rect.top - state.viewY) / state.zoom
+    };
+  }
+}, { passive: true });
+
+viewport.addEventListener('touchmove', (e) => {
+  if (isMultiTouch && e.touches.length >= 2) {
+    const t1 = e.touches[0];
+    const t2 = e.touches[1];
+    const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    if (pinchStartDistance > 0) {
+      const scaleFactor = currentDist / pinchStartDistance;
+      const targetZoom = Math.min(Math.max(pinchStartZoom * scaleFactor, state.minZoom), state.maxZoom);
+
+      // 新しい2指の中心位置
+      const currentCenter = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
+
+      const rect = viewport.getBoundingClientRect();
+      // 指の間を中心にしてブレずに拡大・移動
+      state.zoom = targetZoom;
+      state.viewX = (currentCenter.x - rect.left) - pinchCenterCanvas.x * targetZoom;
+      state.viewY = (currentCenter.y - rect.top) - pinchCenterCanvas.y * targetZoom;
+
+      render();
+    }
+  }
+}, { passive: true });
+
+viewport.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) {
+    // 2本指から指が離れた直後の誤打点を防ぐためのウェイト
+    setTimeout(() => { isMultiTouch = false; }, 120);
+  }
+}, { passive: true });
+
+// 単一ポインター（角タップ・なぞり・ドラッグ移動）
 viewport.addEventListener('pointerdown', (e) => {
+  if (isMultiTouch) return;
   if (e.target !== canvas && e.target !== viewport) return;
-  isInteracting = true;
-  lastTouchPos = { x: e.clientX, y: e.clientY };
+
+  isPointerDown = true;
+  startPointerPos = { x: e.clientX, y: e.clientY };
+  lastPointerPos = { x: e.clientX, y: e.clientY };
 
   const coords = getCanvasCoords(e.clientX, e.clientY);
 
-  if (state.mode === 'scale') {
+  if (state.mode === 'scale' || state.mode === 'corner') {
     const snapped = snapToIntersection(coords.x, coords.y);
-    currentTargetPt = snapped;
-    updateLoupe(e.clientX, e.clientY, snapped.x, snapped.y);
-  } else if (state.mode === 'corner') {
-    const snapped = snapToIntersection(coords.x, coords.y);
-    currentTargetPt = snapped;
     updateLoupe(e.clientX, e.clientY, snapped.x, snapped.y);
   } else if (state.mode === 'trace') {
     state.currentPoints.push({ x: coords.x, y: coords.y });
@@ -759,14 +820,16 @@ viewport.addEventListener('pointerdown', (e) => {
 });
 
 viewport.addEventListener('pointermove', (e) => {
-  if (!isInteracting) return;
+  if (!isPointerDown || isMultiTouch) return;
+
+  const moveDist = Math.hypot(e.clientX - startPointerPos.x, e.clientY - startPointerPos.y);
 
   if (state.mode === 'view') {
-    const dx = e.clientX - lastTouchPos.x;
-    const dy = e.clientY - lastTouchPos.y;
+    const dx = e.clientX - lastPointerPos.x;
+    const dy = e.clientY - lastPointerPos.y;
     state.viewX += dx;
     state.viewY += dy;
-    lastTouchPos = { x: e.clientX, y: e.clientY };
+    lastPointerPos = { x: e.clientX, y: e.clientY };
     render();
     return;
   }
@@ -774,8 +837,8 @@ viewport.addEventListener('pointermove', (e) => {
   const coords = getCanvasCoords(e.clientX, e.clientY);
 
   if (state.mode === 'scale' || state.mode === 'corner') {
+    // ドラッグ移動中もルーペを追従更新
     const snapped = snapToIntersection(coords.x, coords.y);
-    currentTargetPt = snapped;
     updateLoupe(e.clientX, e.clientY, snapped.x, snapped.y);
   } else if (state.mode === 'trace') {
     state.currentPoints.push({ x: coords.x, y: coords.y });
@@ -784,51 +847,36 @@ viewport.addEventListener('pointermove', (e) => {
 });
 
 viewport.addEventListener('pointerup', (e) => {
-  if (!isInteracting) return;
-  isInteracting = false;
+  if (!isPointerDown) return;
+  isPointerDown = false;
   hideLoupe();
 
-  if (state.mode === 'scale' && currentTargetPt) {
-    state.scalePoints.push(currentTargetPt);
-    currentTargetPt = null;
+  if (isMultiTouch) return;
+
+  // 暴発防止ガード: 移動距離が8px以上のスワイプ動作は「角タップ」として打点しない
+  const totalMove = Math.hypot(e.clientX - startPointerPos.x, e.clientY - startPointerPos.y);
+  if (state.mode === 'corner' && totalMove > 8) {
+    return; // スクロールや誤ドラッグと判定しスキップ
+  }
+
+  const coords = getCanvasCoords(e.clientX, e.clientY);
+
+  if (state.mode === 'scale') {
+    const snapped = snapToIntersection(coords.x, coords.y);
+    state.scalePoints.push(snapped);
     render();
     if (state.scalePoints.length === 2) {
       openScaleModal();
     }
-  } else if (state.mode === 'corner' && currentTargetPt) {
-    state.currentPoints.push(currentTargetPt);
-    currentTargetPt = null;
+  } else if (state.mode === 'corner') {
+    const snapped = snapToIntersection(coords.x, coords.y);
+    state.currentPoints.push(snapped);
     render();
   }
 });
 
-// ピンチズーム対応（iOS Safari）
-viewport.addEventListener('touchstart', (e) => {
-  if (e.touches.length === 2) {
-    touchStartDist = Math.hypot(
-      e.touches[0].clientX - e.touches[1].clientX,
-      e.touches[0].clientY - e.touches[1].clientY
-    );
-  }
-}, { passive: true });
-
-viewport.addEventListener('touchmove', (e) => {
-  if (e.touches.length === 2) {
-    const dist = Math.hypot(
-      e.touches[0].clientX - e.touches[1].clientX,
-      e.touches[0].clientY - e.touches[1].clientY
-    );
-    const factor = dist / touchStartDist;
-    if (factor > 0.5 && factor < 2.0) {
-      state.zoom = Math.min(Math.max(state.zoom * factor, state.minZoom), state.maxZoom);
-      touchStartDist = dist;
-      render();
-    }
-  }
-}, { passive: true });
-
 /**
- * 距離計算・単位表示
+ * 距離計算・表示更新
  */
 function calculateDistance(pts) {
   if (pts.length < 2) return 0;
@@ -836,12 +884,12 @@ function calculateDistance(pts) {
   for (let i = 1; i < pts.length; i++) {
     pxTotal += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   }
-  if (!state.scalePxPerMm) return pxTotal; // 未校正時はpx
-  return pxTotal / state.scalePxPerMm; // mm単位
+  if (!state.scalePxPerMm) return pxTotal;
+  return pxTotal / state.scalePxPerMm;
 }
 
 function updateStats() {
-  let mm = calculateDistance(state.currentPoints);
+  const mm = calculateDistance(state.currentPoints);
   const statEl = document.getElementById('statDistance');
   if (!state.scalePxPerMm) {
     statEl.textContent = `${Math.round(mm)} px`;
@@ -855,7 +903,7 @@ function updateStats() {
 }
 
 /**
- * 図面ファイル読み込み（画像 / PDF）
+ * ファイル読込（PDF / 画像）
  */
 document.getElementById('fileInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
@@ -879,12 +927,10 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
 
         await page.render({ canvasContext: offCtx, viewport: viewportDef }).promise;
         const img = new Image();
-        img.onload = () => {
-          applyLoadedPlan(img, img.src);
-        };
-        img.src = offCanvas.toDataURL('image/jpeg', 0.85); // iOS Jetsamクラッシュ防止の軽量化
+        img.onload = () => { applyLoadedPlan(img, img.src); };
+        img.src = offCanvas.toDataURL('image/jpeg', 0.85);
       } catch (err) {
-        alert('PDF読み込みエラー: ' + err.message);
+        alert('PDF読込エラー: ' + err.message);
       }
     };
     reader.readAsArrayBuffer(file);
@@ -892,9 +938,7 @@ document.getElementById('fileInput').addEventListener('change', async (e) => {
     const reader = new FileReader();
     reader.onload = function(evt) {
       const img = new Image();
-      img.onload = () => {
-        applyLoadedPlan(img, evt.target.result);
-      };
+      img.onload = () => { applyLoadedPlan(img, evt.target.result); };
       img.src = evt.target.result;
     };
     reader.readAsDataURL(file);
@@ -915,7 +959,7 @@ function applyLoadedPlan(img, rawDataUrl) {
 }
 
 /**
- * 縮尺設定モーダル操作（案A手動数値入力＋プリセットバッジ）
+ * 縮尺設定モーダル
  */
 const scaleModal = document.getElementById('scaleModal');
 const scaleInputMm = document.getElementById('scaleInputMm');
@@ -979,11 +1023,11 @@ document.getElementById('modeView').addEventListener('click', () => setMode('vie
 document.getElementById('btnSetScale').addEventListener('click', () => {
   state.mode = 'scale';
   state.scalePoints = [];
-  showToast('基準となる2点をルーペで指定してください');
+  showToast('基準となる2点を指定してください');
   render();
 });
 
-// アクションボタン
+// 操作ボタン
 document.getElementById('btnUndo').addEventListener('click', () => {
   if (state.currentPoints.length > 0) {
     state.currentPoints.pop();
@@ -1007,7 +1051,7 @@ document.getElementById('btnUnitToggle').addEventListener('click', () => {
   updateStats();
 });
 
-// 計測保存 & ログ管理
+// 記録保存 & ログ
 document.getElementById('btnSaveLog').addEventListener('click', () => {
   if (state.currentPoints.length < 2) {
     showToast('計測点が不足しています');
@@ -1029,7 +1073,6 @@ document.getElementById('btnSaveLog').addEventListener('click', () => {
   render();
 });
 
-// ログモーダル
 const logModal = document.getElementById('logModal');
 document.getElementById('btnLogModal').addEventListener('click', () => {
   const logList = document.getElementById('logList');
@@ -1045,7 +1088,7 @@ document.getElementById('btnCloseLog').addEventListener('click', () => logModal.
 document.getElementById('btnCopyLog').addEventListener('click', () => {
   if (state.logs.length === 0) return;
   navigator.clipboard.writeText(state.logs.join('\n')).then(() => {
-    showToast('ログをクリップボードにコピーしました');
+    showToast('ログをコピーしました');
   });
 });
 
@@ -1053,7 +1096,7 @@ document.getElementById('btnCopyLog').addEventListener('click', () => {
 document.querySelectorAll('.dbtn').forEach(btn => {
   btn.addEventListener('click', () => {
     const dir = btn.dataset.pan;
-    const step = 40;
+    const step = 45;
     if (dir === 'up') state.viewY += step;
     if (dir === 'down') state.viewY -= step;
     if (dir === 'left') state.viewX += step;
@@ -1062,13 +1105,23 @@ document.querySelectorAll('.dbtn').forEach(btn => {
   });
 });
 
-// ズーム操作
+// ズームボタン操作
 document.getElementById('btnZoomIn').addEventListener('click', () => {
-  state.zoom = Math.min(state.zoom * 1.25, state.maxZoom);
+  const cx = viewport.clientWidth / 2;
+  const cy = viewport.clientHeight / 2;
+  const targetZoom = Math.min(state.zoom * 1.3, state.maxZoom);
+  state.viewX = cx - (cx - state.viewX) * (targetZoom / state.zoom);
+  state.viewY = cy - (cy - state.viewY) * (targetZoom / state.zoom);
+  state.zoom = targetZoom;
   render();
 });
 document.getElementById('btnZoomOut').addEventListener('click', () => {
-  state.zoom = Math.max(state.zoom / 1.25, state.minZoom);
+  const cx = viewport.clientWidth / 2;
+  const cy = viewport.clientHeight / 2;
+  const targetZoom = Math.max(state.zoom / 1.3, state.minZoom);
+  state.viewX = cx - (cx - state.viewX) * (targetZoom / state.zoom);
+  state.viewY = cy - (cy - state.viewY) * (targetZoom / state.zoom);
+  state.zoom = targetZoom;
   render();
 });
 document.getElementById('btnZoomReset').addEventListener('click', () => {
@@ -1080,7 +1133,7 @@ document.getElementById('btnZoomReset').addEventListener('click', () => {
 });
 
 /**
- * ページロード時：IndexedDBからの自動復元
+ * ページ起動時：IndexedDB復元
  */
 window.addEventListener('DOMContentLoaded', async () => {
   await initDB();
