@@ -730,16 +730,17 @@ function getCanvasCoords(clientX, clientY) {
 }
 
 /**
- * タッチ・ポインター制御（暴発防止＆高精度ピンチズーム）
+ * タッチ・ポインター制御
  */
 let isPointerDown = false;
 let startPointerPos = { x: 0, y: 0 };
 let lastPointerPos = { x: 0, y: 0 };
+let lastMoveTime = 0;
 let isMultiTouch = false;
 let pinchStartDistance = 0;
 let pinchStartZoom = 1;
-let pinchCenter = { x: 0, y: 0 };
 let pinchCenterCanvas = { x: 0, y: 0 };
+let currentTargetSnapped = null; // 照準合わせ中の確定吸着点
 
 // ピンチイン・アウト（中心位置固定ズーム）
 viewport.addEventListener('touchstart', (e) => {
@@ -752,16 +753,14 @@ viewport.addEventListener('touchstart', (e) => {
     pinchStartDistance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
     pinchStartZoom = state.zoom;
 
-    // 2指の中心スクリーン座標
-    pinchCenter = {
+    const center = {
       x: (t1.clientX + t2.clientX) / 2,
       y: (t1.clientY + t2.clientY) / 2
     };
-    // 中心座標における図面上の相対点（ここを中心に拡大する）
     const rect = viewport.getBoundingClientRect();
     pinchCenterCanvas = {
-      x: (pinchCenter.x - rect.left - state.viewX) / state.zoom,
-      y: (pinchCenter.y - rect.top - state.viewY) / state.zoom
+      x: (center.x - rect.left - state.viewX) / state.zoom,
+      y: (center.y - rect.top - state.viewY) / state.zoom
     };
   }
 }, { passive: true });
@@ -775,14 +774,12 @@ viewport.addEventListener('touchmove', (e) => {
       const scaleFactor = currentDist / pinchStartDistance;
       const targetZoom = Math.min(Math.max(pinchStartZoom * scaleFactor, state.minZoom), state.maxZoom);
 
-      // 新しい2指の中心位置
       const currentCenter = {
         x: (t1.clientX + t2.clientX) / 2,
         y: (t1.clientY + t2.clientY) / 2
       };
 
       const rect = viewport.getBoundingClientRect();
-      // 指の間を中心にしてブレずに拡大・移動
       state.zoom = targetZoom;
       state.viewX = (currentCenter.x - rect.left) - pinchCenterCanvas.x * targetZoom;
       state.viewY = (currentCenter.y - rect.top) - pinchCenterCanvas.y * targetZoom;
@@ -794,12 +791,11 @@ viewport.addEventListener('touchmove', (e) => {
 
 viewport.addEventListener('touchend', (e) => {
   if (e.touches.length < 2) {
-    // 2本指から指が離れた直後の誤打点を防ぐためのウェイト
-    setTimeout(() => { isMultiTouch = false; }, 120);
+    setTimeout(() => { isMultiTouch = false; }, 140);
   }
 }, { passive: true });
 
-// 単一ポインター（角タップ・なぞり・ドラッグ移動）
+// 単一ポインター（照準合わせ & 静止判定打点）
 viewport.addEventListener('pointerdown', (e) => {
   if (isMultiTouch) return;
   if (e.target !== canvas && e.target !== viewport) return;
@@ -807,12 +803,13 @@ viewport.addEventListener('pointerdown', (e) => {
   isPointerDown = true;
   startPointerPos = { x: e.clientX, y: e.clientY };
   lastPointerPos = { x: e.clientX, y: e.clientY };
+  lastMoveTime = Date.now();
 
   const coords = getCanvasCoords(e.clientX, e.clientY);
 
   if (state.mode === 'scale' || state.mode === 'corner') {
-    const snapped = snapToIntersection(coords.x, coords.y);
-    updateLoupe(e.clientX, e.clientY, snapped.x, snapped.y);
+    currentTargetSnapped = snapToIntersection(coords.x, coords.y);
+    updateLoupe(e.clientX, e.clientY, currentTargetSnapped.x, currentTargetSnapped.y);
   } else if (state.mode === 'trace') {
     state.currentPoints.push({ x: coords.x, y: coords.y });
     render();
@@ -822,7 +819,8 @@ viewport.addEventListener('pointerdown', (e) => {
 viewport.addEventListener('pointermove', (e) => {
   if (!isPointerDown || isMultiTouch) return;
 
-  const moveDist = Math.hypot(e.clientX - startPointerPos.x, e.clientY - startPointerPos.y);
+  const now = Date.now();
+  const coords = getCanvasCoords(e.clientX, e.clientY);
 
   if (state.mode === 'view') {
     const dx = e.clientX - lastPointerPos.x;
@@ -830,16 +828,17 @@ viewport.addEventListener('pointermove', (e) => {
     state.viewX += dx;
     state.viewY += dy;
     lastPointerPos = { x: e.clientX, y: e.clientY };
+    lastMoveTime = now;
     render();
     return;
   }
 
-  const coords = getCanvasCoords(e.clientX, e.clientY);
-
   if (state.mode === 'scale' || state.mode === 'corner') {
-    // ドラッグ移動中もルーペを追従更新
-    const snapped = snapToIntersection(coords.x, coords.y);
-    updateLoupe(e.clientX, e.clientY, snapped.x, snapped.y);
+    // 指を動かしている間、リアルタイムに照準ルーペを追従・吸着更新
+    currentTargetSnapped = snapToIntersection(coords.x, coords.y);
+    updateLoupe(e.clientX, e.clientY, currentTargetSnapped.x, currentTargetSnapped.y);
+    lastPointerPos = { x: e.clientX, y: e.clientY };
+    lastMoveTime = now;
   } else if (state.mode === 'trace') {
     state.currentPoints.push({ x: coords.x, y: coords.y });
     render();
@@ -853,26 +852,32 @@ viewport.addEventListener('pointerup', (e) => {
 
   if (isMultiTouch) return;
 
-  // 暴発防止ガード: 移動距離が8px以上のスワイプ動作は「角タップ」として打点しない
-  const totalMove = Math.hypot(e.clientX - startPointerPos.x, e.clientY - startPointerPos.y);
-  if (state.mode === 'corner' && totalMove > 8) {
-    return; // スクロールや誤ドラッグと判定しスキップ
-  }
+  const now = Date.now();
+  const timeSinceLastMove = now - lastMoveTime;
+  const distFromStart = Math.hypot(e.clientX - startPointerPos.x, e.clientY - startPointerPos.y);
 
-  const coords = getCanvasCoords(e.clientX, e.clientY);
+  // 【静止判定ロジック】
+  // 1. 直前の静止時間（指を止めてから離したか: timeSinceLastMove >= 60ms）
+  // 2. または、指が最初からほとんど動いていない純粋タップ（distFromStart < 12px）
+  // どちらかを満たせば「狙いを定めて静止し、指を離した」と判断して打点
+  const isStationaryRelease = (timeSinceLastMove >= 60) || (distFromStart < 12);
 
-  if (state.mode === 'scale') {
-    const snapped = snapToIntersection(coords.x, coords.y);
-    state.scalePoints.push(snapped);
-    render();
-    if (state.scalePoints.length === 2) {
-      openScaleModal();
+  if ((state.mode === 'corner' || state.mode === 'scale') && isStationaryRelease) {
+    const targetPt = currentTargetSnapped || snapToIntersection(getCanvasCoords(e.clientX, e.clientY).x, getCanvasCoords(e.clientX, e.clientY).y);
+
+    if (state.mode === 'scale') {
+      state.scalePoints.push(targetPt);
+      render();
+      if (state.scalePoints.length === 2) {
+        openScaleModal();
+      }
+    } else if (state.mode === 'corner') {
+      state.currentPoints.push(targetPt);
+      render();
     }
-  } else if (state.mode === 'corner') {
-    const snapped = snapToIntersection(coords.x, coords.y);
-    state.currentPoints.push(snapped);
-    render();
   }
+
+  currentTargetSnapped = null;
 });
 
 /**
