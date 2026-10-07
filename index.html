@@ -285,4 +285,156 @@
     });
 
     // 4. 手動加減算・リセット
-    document.getElementById('b-p01').addEventListener('click', function() { totalDist +=
+    document.getElementById('b-p01').addEventListener('click', function() { totalDist += 0.1; txtDist.innerText = totalDist.toFixed(2); });
+    document.getElementById('b-m01').addEventListener('click', function() { totalDist = Math.max(0, totalDist - 0.1); txtDist.innerText = totalDist.toFixed(2); });
+    document.getElementById('b-zero').addEventListener('click', function() {
+      totalDist = 0.0;
+      currentSpeed = 0.0;
+      speedSamples = [];
+      txtDist.innerText = "0.00";
+      txtSpeed.innerText = "0.0";
+    });
+    document.getElementById('b-set').addEventListener('click', function() {
+      var val = window.prompt("延線距離(m)を入力:", totalDist.toFixed(2));
+      if (val !== null && !isNaN(parseFloat(val))) {
+        totalDist = Math.max(0, parseFloat(val));
+        txtDist.innerText = totalDist.toFixed(2);
+      }
+    });
+
+    // 5. 測定一時停止
+    bPause.addEventListener('click', function() {
+      isPaused = !isPaused;
+      if (isPaused) {
+        bPause.innerText = '測定再開 ▶';
+        msg.innerText = "測定一時停止中";
+        txtSpeed.innerText = "0.0";
+      } else {
+        bPause.innerText = '一時停止 ⏸';
+        msg.innerText = "測定中";
+        prevProfile = null;
+      }
+    });
+
+    function startLoop() {
+      if (isRunning) return;
+      isRunning = true;
+      requestAnimationFrame(mainLoop);
+    }
+
+    // 6. メイン解析ループ
+    function mainLoop(now) {
+      var stage = document.getElementById('stage');
+      var sw = stage.clientWidth;
+      var sh = stage.clientHeight;
+
+      if (overlay.width !== sw || overlay.height !== sh) {
+        overlay.width = sw;
+        overlay.height = sh;
+      }
+
+      // 画面中央の測定枠
+      var bw = Math.floor(sw * 0.85);
+      var bh = 60;
+      var bx = Math.floor((sw - bw) / 2);
+      var by = Math.floor(sh * 0.55 - bh / 2);
+
+      // ガイド枠描画
+      ctxOverlay.clearRect(0, 0, sw, sh);
+      ctxOverlay.strokeStyle = isPaused ? '#94a3b8' : '#22c55e';
+      ctxOverlay.lineWidth = 2;
+      ctxOverlay.strokeRect(bx, by, bw, bh);
+      ctxOverlay.fillStyle = isPaused ? '#94a3b8' : '#22c55e';
+      ctxOverlay.font = '11px sans-serif';
+      ctxOverlay.fillText(isPaused ? '⏸ 測定停止中' : '🎯 ケーブル測定枠', bx, by - 6);
+
+      // 解析処理
+      if (v.readyState >= 2 && v.videoWidth > 0) {
+        var pw = 160;
+        var ph = 20;
+        if (cProc.width !== pw) { cProc.width = pw; cProc.height = ph; }
+
+        var vw = v.videoWidth;
+        var vh = v.videoHeight;
+        var scale = Math.max(sw / vw, sh / vh);
+        var rw = vw * scale;
+        var rh = vh * scale;
+        var ox = (sw - rw) / 2;
+        var oy = (sh - rh) / 2;
+
+        var sx = Math.max(0, (bx - ox) / scale);
+        var sy = Math.max(0, (by - oy) / scale);
+        var swSrc = Math.min(vw - sx, bw / scale);
+        var shSrc = Math.min(vh - sy, bh / scale);
+
+        ctxProc.drawImage(v, sx, sy, swSrc, shSrc, 0, 0, pw, ph);
+        var imgData = ctxProc.getImageData(0, 0, pw, ph).data;
+
+        // 1次元輝度プロファイル抽出
+        var curProf = new Float32Array(pw);
+        for (var x = 0; x < pw; x++) {
+          var sum = 0, cnt = 0;
+          for (var y = 0; y < ph; y++) {
+            var idx = (y * pw + x) * 4;
+            var g = 0.299 * imgData[idx] + 0.587 * imgData[idx+1] + 0.114 * imgData[idx+2];
+            if (g < 235) { sum += g; cnt++; }
+          }
+          curProf[x] = cnt > 0 ? sum / cnt : 0;
+        }
+
+        if (!isPaused && prevProfile) {
+          // シフト量探索
+          var maxS = 10, bestS = 0, minDiff = 999999;
+          for (var s = -maxS; s <= maxS; s++) {
+            var diff = 0;
+            for (var i = maxS; i < pw - maxS; i++) {
+              diff += Math.abs(prevProfile[i] - curProf[i + s]);
+            }
+            if (diff < minDiff) { minDiff = diff; bestS = s; }
+          }
+
+          var shiftPx = bestS * (swSrc / pw);
+          var deltaM = (shiftPx / scaleFactor) / 1000.0;
+          var dt = (now - lastLoopTime) / 1000.0;
+
+          if (Math.abs(deltaM) < 0.04 && Math.abs(deltaM) > 0.0006) {
+            totalDist += deltaM;
+            txtDist.innerText = totalDist.toFixed(2);
+
+            if (dt > 0 && dt < 0.25) {
+              speedSamples.push(Math.max(0, (deltaM / dt) * 60.0));
+            }
+          } else {
+            speedSamples.push(0);
+          }
+
+          // 速度平滑化 (0.5秒平均)
+          if (now - lastSpeedTime > 500) {
+            if (speedSamples.length > 0) {
+              var avg = speedSamples.reduce(function(a, b) { return a + b; }, 0) / speedSamples.length;
+              currentSpeed = currentSpeed * 0.3 + avg * 0.7;
+              speedSamples = [];
+            } else {
+              currentSpeed = 0.0;
+            }
+            txtSpeed.innerText = Math.max(0, currentSpeed).toFixed(1);
+            lastSpeedTime = now;
+          }
+        }
+        prevProfile = curProf;
+
+        // FPSカウント
+        frameCount++;
+        if (now - lastFpsTime > 1000) {
+          txtFps.innerText = frameCount + " FPS";
+          frameCount = 0;
+          lastFpsTime = now;
+        }
+      }
+
+      lastLoopTime = now;
+      requestAnimationFrame(mainLoop);
+    }
+  </script>
+</body>
+</html>
