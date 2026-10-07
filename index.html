@@ -1,1416 +1,288 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>H M-r - 図面動線・距離計測</title>
-<!-- PDF.js (CDN経由・最小構成) -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>
-  if (window['pdfjs-dist/build/pdf']) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
-</script>
-<style>
-  :root {
-    --primary: #0284c7;
-    --primary-dark: #0369a1;
-    --accent: #f59e0b;
-    --danger: #ef4444;
-    --success: #10b981;
-    --bg-dark: #0b1120;
-    --panel-bg: rgba(15, 23, 42, 0.92);
-    --text-light: #f8fafc;
-    --border-ui: #334155;
-  }
-  * {
-    box-sizing: border-box;
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    user-select: none;
-    margin: 0;
-    padding: 0;
-  }
-  body, html {
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background-color: var(--bg-dark);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    color: var(--text-light);
-  }
-  #app {
-    display: flex;
-    flex-direction: column;
-    width: 100vw;
-    height: 100dvh;
-    position: relative;
-  }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>(仮称)カメラ式ケーブル距離計</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #111;
+      padding: 8px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #333;
+      flex-shrink: 0;
+      z-index: 30;
+    }
+    .title { font-size: 14px; font-weight: bold; color: #4ade80; }
+    #fps { font-size: 12px; color: #aaa; }
 
-  /* 上部ヘッダー */
-  header {
-    height: 44px;
-    background: var(--panel-bg);
-    backdrop-filter: blur(12px);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 8px;
-    border-bottom: 1px solid var(--border-ui);
-    z-index: 25;
-    flex-shrink: 0;
-  }
-  .title-area {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 700;
-    font-size: 13px;
-  }
-  .badge-scale {
-    font-size: 10px;
-    padding: 2px 5px;
-    background: #1e293b;
-    border: 1px solid #475569;
-    border-radius: 4px;
-    color: #38bdf8;
-  }
-  .header-actions {
-    display: flex;
-    gap: 5px;
-  }
+    #stage {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+    video {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+    }
 
-  /* ボタン共通 */
-  button, .btn-label {
-    background: #1e293b;
-    color: #f8fafc;
-    border: 1px solid var(--border-ui);
-    padding: 5px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    touch-action: manipulation;
-  }
-  button:active, .btn-label:active {
-    background: #334155;
-    transform: scale(0.97);
-  }
-  button.active {
-    background: var(--primary);
-    border-color: #38bdf8;
-    color: #fff;
-  }
-  button.accent {
-    background: #d97706;
-    border-color: #f59e0b;
-  }
-  button.danger {
-    background: #991b1b;
-    border-color: var(--danger);
-  }
-  button.success {
-    background: #059669;
-    border-color: var(--success);
-  }
+    #dash {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      right: 8px;
+      z-index: 20;
+      display: flex;
+      gap: 8px;
+    }
+    .card {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 6px 10px;
+      text-align: center;
+    }
+    .card-lbl { font-size: 10px; color: #aaa; }
+    .card-val { font-size: 24px; font-weight: bold; }
+    .card-unit { font-size: 11px; color: #888; margin-left: 2px; }
 
-  /* メイン作業ビューポート */
-  #viewport {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
-    background: #1e293b;
-    touch-action: none;
-  }
-  #drawingCanvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-    transform-origin: 0 0;
-    cursor: crosshair;
-  }
+    /* テスト用動画操作バー */
+    #v-bar {
+      position: absolute;
+      bottom: 10px;
+      left: 8px;
+      right: 8px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid #38bdf8;
+      border-radius: 8px;
+      padding: 6px 8px;
+      z-index: 25;
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .v-row { display: flex; gap: 4px; align-items: center; }
+    .v-btn {
+      flex: 1;
+      background: #1e293b;
+      color: #fff;
+      border: 1px solid #475569;
+      padding: 6px 0;
+      border-radius: 4px;
+      font-size: 11px;
+      text-align: center;
+    }
 
-  /* 大型・高視認性 測定距離ウィンドウ */
-  #mainDistancePanel {
-    position: absolute;
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(15, 23, 42, 0.95);
-    border: 2px solid #0284c7;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-    border-radius: 10px;
-    padding: 5px 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    z-index: 24;
-    pointer-events: auto;
-  }
-  .dist-display-box {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  #statDistance {
-    font-size: 24px;
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-    color: #38bdf8;
-    line-height: 1.1;
-  }
-  #statBreakdown {
-    font-size: 10px;
-    color: #94a3b8;
-  }
-  .dist-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .sub-btn {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
+    /* エラー・状態表示 */
+    #msg {
+      position: absolute;
+      top: 75px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.85);
+      color: #38bdf8;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 11px;
+      z-index: 20;
+      white-space: nowrap;
+    }
 
-  /* 拡大ルーペ（案A照準拡大鏡） */
-  #loupe {
-    position: absolute;
-    width: 140px;
-    height: 140px;
-    border-radius: 50%;
-    border: 3px solid #38bdf8;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-    pointer-events: none;
-    display: none;
-    z-index: 100;
-    overflow: hidden;
-    background: #000;
-  }
-  #loupeCanvas {
-    width: 100%;
-    height: 100%;
-  }
-  .loupe-reticle {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-  }
-  .loupe-cross-v {
-    position: absolute;
-    width: 1px;
-    height: 50px;
-    background: #ef4444;
-    left: 0;
-    top: -25px;
-  }
-  .loupe-cross-h {
-    position: absolute;
-    height: 1px;
-    width: 50px;
-    background: #ef4444;
-    top: 0;
-    left: -25px;
-  }
-  .loupe-ring {
-    position: absolute;
-    width: 16px;
-    height: 16px;
-    border: 1px dashed #38bdf8;
-    border-radius: 50%;
-    top: -8px;
-    left: -8px;
-  }
-
-  /* D-Pad */
-  #dpad {
-    position: absolute;
-    left: 10px;
-    bottom: 96px;
-    width: 84px;
-    height: 84px;
-    background: rgba(15, 23, 42, 0.7);
-    border-radius: 50%;
-    border: 1px solid rgba(255,255,255,0.15);
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    grid-template-rows: 1fr 1fr 1fr;
-    z-index: 30;
-    backdrop-filter: blur(8px);
-  }
-  .dbtn {
-    border: none;
-    background: transparent;
-    color: #94a3b8;
-    font-size: 11px;
-    padding: 0;
-  }
-  .dbtn:active {
-    color: #fff;
-    background: rgba(255,255,255,0.2);
-  }
-
-  /* ズームコントローラ */
-  #zoomControls {
-    position: absolute;
-    right: 10px;
-    bottom: 96px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    z-index: 30;
-  }
-  .circle-btn {
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    font-size: 17px;
-    padding: 0;
-  }
-
-  /* 下部操作ツールバー */
-  #bottomBar {
-    background: var(--panel-bg);
-    border-top: 1px solid var(--border-ui);
-    padding: 6px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    z-index: 25;
-    backdrop-filter: blur(12px);
-  }
-  .toolbar-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-  }
-  .mode-selector {
-    display: flex;
-    flex: 1;
-    background: #0f172a;
-    padding: 2px;
-    border-radius: 8px;
-    border: 1px solid var(--border-ui);
-    gap: 3px;
-  }
-  .mode-selector button {
-    flex: 1;
-    border: none;
-    background: transparent;
-    padding: 6px 2px;
-    font-size: 11px;
-    border-radius: 6px;
-  }
-  .mode-selector button.active {
-    background: var(--primary);
-  }
-
-  /* モーダル */
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100dvh;
-    background: rgba(0,0,0,0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 200;
-    visibility: hidden;
-    opacity: 0;
-    transition: opacity 0.2s, visibility 0.2s;
-  }
-  .modal-overlay.open {
-    visibility: visible;
-    opacity: 1;
-  }
-  .modal-box {
-    width: 88%;
-    max-width: 360px;
-    background: #0f172a;
-    border: 1px solid var(--border-ui);
-    border-radius: 12px;
-    padding: 16px;
-    box-shadow: 0 16px 32px rgba(0,0,0,0.5);
-  }
-  .modal-title {
-    font-size: 14px;
-    font-weight: 700;
-    margin-bottom: 10px;
-    color: #f8fafc;
-  }
-  .preset-badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: 10px 0;
-  }
-  .badge-btn {
-    background: #1e293b;
-    border: 1px solid #334155;
-    color: #38bdf8;
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-size: 12px;
-  }
-  .text-input {
-    width: 100%;
-    padding: 8px 10px;
-    background: #1e293b;
-    border: 1px solid var(--border-ui);
-    color: #fff;
-    font-size: 15px;
-    border-radius: 6px;
-    outline: none;
-    margin-bottom: 10px;
-  }
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
-  }
-  .toast {
-    position: fixed;
-    top: 54px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(2, 132, 199, 0.95);
-    color: #fff;
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 12px;
-    pointer-events: none;
-    z-index: 300;
-    opacity: 0;
-    transition: opacity 0.3s;
-  }
-</style>
+    footer {
+      background: #111;
+      padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 10px));
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      border-top: 1px solid #333;
+      flex-shrink: 0;
+      z-index: 30;
+    }
+    .btn-row { display: flex; gap: 6px; }
+    button, label.btn {
+      flex: 1;
+      background: #2a2a2a;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 9px 0;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      text-align: center;
+      cursor: pointer;
+    }
+    button.green { background: #16a34a; border-color: #15803d; }
+    button.orange { background: #d97706; border-color: #b45309; }
+    input[type="file"] { display: none; }
+  </style>
 </head>
 <body>
-<div id="app">
-  <!-- 上部ヘッダー -->
+
   <header>
-    <div class="title-area">
-      <span>H M-r</span>
-      <span id="scaleStatusBadge" class="badge-scale">未校正</span>
-    </div>
-    <div class="header-actions">
-      <label class="btn-label" for="fileInput">📁 図面</label>
-      <input type="file" id="fileInput" accept="image/*,application/pdf" style="display:none;">
-      <button id="btnSetScale" class="accent">📏 縮尺</button>
-      <button id="btnExportImage" class="success">📷 出力</button>
-      <button id="btnLogModal">📋 ログ</button>
-    </div>
+    <div class="title">(仮称)カメラ式ケーブル距離計</div>
+    <div id="fps">0 FPS</div>
   </header>
 
-  <!-- キャンバス操作エリア -->
-  <div id="viewport">
-    <canvas id="drawingCanvas"></canvas>
+  <div id="stage">
+    <video id="v" playsinline webkit-playsinline muted autoplay loop></video>
+    <canvas id="c-proc" style="display:none;"></canvas>
+    <canvas id="overlay"></canvas>
 
-    <!-- 大型 測定距離ウィンドウ ＋ 余長情報 -->
-    <div id="mainDistancePanel">
-      <div class="dist-display-box">
-        <span id="statDistance">0.00 m</span>
-        <span id="statBreakdown">水平: 0.00m | 余長: 0.00m</span>
+    <div id="dash">
+      <div class="card">
+        <div class="card-lbl">延線距離</div>
+        <div><span id="txt-dist" class="card-val">0.00</span><span class="card-unit">m</span></div>
       </div>
-      <div class="dist-actions">
-        <button id="btnUnitToggle" class="sub-btn">m</button>
-        <button id="btnOpenExtra" class="sub-btn" style="background:#0369a1; border-color:#38bdf8;">+余長</button>
-      </div>
-    </div>
-
-    <!-- 拡大ルーペ（案A） -->
-    <div id="loupe">
-      <canvas id="loupeCanvas" width="140" height="140"></canvas>
-      <div class="loupe-reticle">
-        <div class="loupe-cross-v"></div>
-        <div class="loupe-cross-h"></div>
-        <div class="loupe-ring"></div>
+      <div class="card">
+        <div class="card-lbl">速度 (平均)</div>
+        <div><span id="txt-speed" class="card-val">0.0</span><span class="card-unit">m/分</span></div>
       </div>
     </div>
 
-    <!-- D-Pad -->
-    <div id="dpad">
-      <div></div><button class="dbtn" data-pan="up">▲</button><div></div>
-      <button class="dbtn" data-pan="left">◀</button><div></div><button class="dbtn" data-pan="right">▶</button>
-      <div></div><button class="dbtn" data-pan="down">▼</button><div></div>
-    </div>
+    <div id="msg">下の「カメラ起動」または「動画読込」を押してください</div>
 
-    <!-- ズーム操作 -->
-    <div id="zoomControls">
-      <button id="btnZoomIn" class="circle-btn">＋</button>
-      <button id="btnZoomOut" class="circle-btn">－</button>
-      <button id="btnZoomReset" class="circle-btn" style="font-size:10px;">Fit</button>
-    </div>
-  </div>
-
-  <!-- 下部操作バー -->
-  <div id="bottomBar">
-    <div class="toolbar-row">
-      <div class="mode-selector">
-        <button id="modeCorner" class="active">②角タップ</button>
-        <button id="modeTrace">③なぞる</button>
-        <button id="modeView">閲覧/移動</button>
+    <!-- 動画操作バー（動画読込時のみ表示） -->
+    <div id="v-bar">
+      <div style="display:flex; justify-content:space-between; font-size:10px; color:#38bdf8;">
+        <span>🎬 動画コントローラー</span>
+        <span id="v-time">0.0s</span>
       </div>
-      <!-- 直交アシスト（オルソ）切替トグル -->
-      <button id="btnOrthoToggle" style="font-size:11px; padding:6px 10px;">直交: OFF</button>
-    </div>
-    <div class="toolbar-row">
-      <button id="btnUndo" style="flex:1;">↶ 1手戻す</button>
-      <button id="btnClear" class="danger" style="flex:1;">✕ クリア</button>
-      <button id="btnSaveLog" class="active" style="flex:1.4;">💾 記録保存</button>
-    </div>
-  </div>
-</div>
-
-<!-- 縮尺数値入力モーダル -->
-<div id="scaleModal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-title">縮尺実寸法（mm）の入力</div>
-    <p style="font-size:11px; color:#94a3b8; margin-bottom:8px;">指定した2点間の設計寸法を入力してください。</p>
-    <input type="number" id="scaleInputMm" class="text-input" placeholder="例: 3640">
-    <div class="preset-badges">
-      <button class="badge-btn scale-badge" data-val="910">910</button>
-      <button class="badge-btn scale-badge" data-val="1820">1820</button>
-      <button class="badge-btn scale-badge" data-val="2730">2730</button>
-      <button class="badge-btn scale-badge" data-val="3640">3640</button>
-      <button class="badge-btn scale-badge" data-val="4550">4550</button>
-      <button class="badge-btn scale-badge" data-val="9100">9100</button>
-      <button class="badge-btn scale-badge" data-val="12300">12300</button>
-    </div>
-    <div class="modal-actions">
-      <button id="btnCancelScale">キャンセル</button>
-      <button id="btnConfirmScale" class="accent">設定確定</button>
+      <div class="v-row">
+        <button class="v-btn" id="vb-b1">-1秒</button>
+        <button class="v-btn" id="vb-bstep">◀ コマ戻</button>
+        <button class="v-btn" id="vb-play" style="background:#0284c7;">一時停止 ⏸</button>
+        <button class="v-btn" id="vb-fstep">コマ送 ▶</button>
+        <button class="v-btn" id="vb-f1">+1秒</button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- 立ち上げ・余長（Z軸）入力モーダル -->
-<div id="extraModal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-title">立ち上げ・盤内余長の加算 (m)</div>
-    <p style="font-size:11px; color:#94a3b8; margin-bottom:8px;">垂直寸法（立ち上がり・立ち下げ・盤内処理長）を設定します。</p>
-    <input type="number" step="0.1" id="extraInputM" class="text-input" placeholder="例: 2.5">
-    <div class="preset-badges">
-      <button class="badge-btn extra-badge" data-m="0">+0m</button>
-      <button class="badge-btn extra-badge" data-m="1.0">+1.0m</button>
-      <button class="badge-btn extra-badge" data-m="1.5">+1.5m</button>
-      <button class="badge-btn extra-badge" data-m="2.0">+2.0m</button>
-      <button class="badge-btn extra-badge" data-m="2.5">+2.5m</button>
-      <button class="badge-btn extra-badge" data-m="3.0">+3.0m</button>
-      <button class="badge-btn extra-badge" data-m="5.0">+5.0m</button>
+  <footer>
+    <div class="btn-row">
+      <button id="b-m01">-0.1m</button>
+      <button id="b-p01">+0.1m</button>
+      <button id="b-set">数値設定</button>
+      <button id="b-zero" style="color:#f87171;">0mリセット</button>
     </div>
-    <div class="modal-actions">
-      <button id="btnCancelExtra">閉じる</button>
-      <button id="btnConfirmExtra" class="accent">適用</button>
+    <div class="btn-row">
+      <button id="b-pause" class="orange">一時停止 ⏸</button>
+      <button id="b-cam" class="green">カメラ起動</button>
+      <label class="btn" for="f-video">動画読込</label>
+      <input type="file" id="f-video" accept="video/*">
     </div>
-  </div>
-</div>
+  </footer>
 
-<!-- 計測ログモーダル -->
-<div id="logModal" class="modal-overlay">
-  <div class="modal-box" style="max-height:80dvh; display:flex; flex-direction:column;">
-    <div class="modal-title">計測履歴・メモ</div>
-    <div id="logList" style="flex:1; overflow-y:auto; font-size:11px; margin-bottom:12px; border:1px solid #334155; padding:6px; border-radius:6px; background:#1e293b;">
-      記録がありません
-    </div>
-    <div class="modal-actions">
-      <button id="btnCopyLog" class="accent">📋 全文コピー</button>
-      <button id="btnCloseLog">閉じる</button>
-    </div>
-  </div>
-</div>
+  <script>
+    // 状態管理
+    var scaleFactor = 2.5; // px/mm
+    var totalDist = 0.0;
+    var isRunning = false;
+    var isPaused = false;
 
-<div id="toast" class="toast"></div>
+    var speedSamples = [];
+    var lastSpeedTime = performance.now();
+    var currentSpeed = 0.0;
 
-<script>
-/**
- * IndexedDB 管理
- */
-const DB_NAME = 'HMr_PlanStore';
-const DB_VERSION = 1;
-let db = null;
+    var lastLoopTime = performance.now();
+    var frameCount = 0;
+    var lastFpsTime = performance.now();
+    var prevProfile = null;
 
-function initDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const d = e.target.result;
-      if (!d.objectStoreNames.contains('planData')) {
-        d.createObjectStore('planData');
+    var v = document.getElementById('v');
+    var cProc = document.getElementById('c-proc');
+    var ctxProc = cProc.getContext('2d', { willReadFrequently: true });
+    var overlay = document.getElementById('overlay');
+    var ctxOverlay = overlay.getContext('2d');
+
+    var txtDist = document.getElementById('txt-dist');
+    var txtSpeed = document.getElementById('txt-speed');
+    var txtFps = document.getElementById('fps');
+    var msg = document.getElementById('msg');
+    var vBar = document.getElementById('v-bar');
+    var vTime = document.getElementById('v-time');
+    var bPause = document.getElementById('b-pause');
+
+    // 1. カメラ起動
+    document.getElementById('b-cam').addEventListener('click', function() {
+      vBar.style.display = 'none';
+      msg.innerText = "カメラ起動中...";
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } }
+        }).then(function(stream) {
+          v.srcObject = stream;
+          v.play();
+          msg.innerText = "緑枠にケーブルを合わせてください";
+          isPaused = false;
+          bPause.innerText = '一時停止 ⏸';
+          startLoop();
+        }).catch(function(e) {
+          msg.innerText = "エラー: " + e.message;
+        });
+      } else {
+        msg.innerText = "カメラ非対応ブラウザです";
       }
-    };
-    req.onsuccess = () => { db = req.result; resolve(db); };
-    req.onerror = () => reject(req.error);
-  });
-}
+    });
 
-function saveStorage(key, val) {
-  if (!db) return;
-  const tx = db.transaction('planData', 'readwrite');
-  tx.objectStore('planData').put(val, key);
-}
-
-function loadStorage(key) {
-  return new Promise((resolve) => {
-    if (!db) return resolve(null);
-    const tx = db.transaction('planData', 'readonly');
-    const req = tx.objectStore('planData').get(key);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => resolve(null);
-  });
-}
-
-// アプリケーション状態
-const state = {
-  mode: 'corner', // 'corner' | 'trace' | 'view' | 'scale'
-  orthoMode: false, // 直交アシスト
-  extraLengthM: 0,  // 立ち上げ・余長 (m)
-  scalePxPerMm: 0,
-  unit: 'm', // 'm' | 'mm'
-  viewX: 0,
-  viewY: 0,
-  zoom: 1,
-  minZoom: 0.08,
-  maxZoom: 8,
-  planImage: null,
-  planWidth: 0,
-  planHeight: 0,
-  routes: [],
-  currentPoints: [],
-  scalePoints: [],
-  logs: []
-};
-
-const viewport = document.getElementById('viewport');
-const canvas = document.getElementById('drawingCanvas');
-const ctx = canvas.getContext('2d', { willReadFrequently: true });
-const loupe = document.getElementById('loupe');
-const loupeCanvas = document.getElementById('loupeCanvas');
-const loupeCtx = loupeCanvas.getContext('2d');
-const toastEl = document.getElementById('toast');
-
-function showToast(msg) {
-  toastEl.textContent = msg;
-  toastEl.style.opacity = '1';
-  setTimeout(() => { toastEl.style.opacity = '0'; }, 2200);
-}
-
-// iOS Jetsam対策: Canvasサイズクランプ
-const MAX_SAFE_CANVAS_DIM = 2400;
-
-function setupCanvasSize(w, h) {
-  let scale = 1;
-  if (w > MAX_SAFE_CANVAS_DIM || h > MAX_SAFE_CANVAS_DIM) {
-    scale = Math.min(MAX_SAFE_CANVAS_DIM / w, MAX_SAFE_CANVAS_DIM / h);
-  }
-  canvas.width = Math.round(w * scale);
-  canvas.height = Math.round(h * scale);
-  state.planWidth = canvas.width;
-  state.planHeight = canvas.height;
-}
-
-function render() {
-  if (!state.planWidth) return;
-
-  canvas.style.transform = `translate(${state.viewX}px, ${state.viewY}px) scale(${state.zoom})`;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (state.planImage) {
-    ctx.drawImage(state.planImage, 0, 0, canvas.width, canvas.height);
-  }
-
-  // 確定ルート描画（寸法数値テキスト付き）
-  state.routes.forEach(route => {
-    drawPath(route.points, '#0284c7', 3.5 / state.zoom, false, true);
-  });
-
-  // 計測中ルート描画
-  if (state.currentPoints.length > 0) {
-    drawPath(state.currentPoints, '#38bdf8', 3.5 / state.zoom, true, true);
-  }
-
-  // 縮尺指定マーカー描画
-  if (state.scalePoints.length > 0) {
-    drawScaleMarkers();
-  }
-
-  updateStats();
-}
-
-/**
- * パス描画 ＋ 区間寸法ラベルのレンダリング
- */
-function drawPath(pts, color, lineWidth, active = false, showSegmentDist = true) {
-  if (pts.length === 0) return;
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = Math.max(lineWidth, 2);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  ctx.beginPath();
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) {
-    ctx.lineTo(pts[i].x, pts[i].y);
-  }
-  ctx.stroke();
-
-  // ノード点
-  pts.forEach((pt, idx) => {
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, Math.max(4.5 / state.zoom, 3), 0, Math.PI * 2);
-    ctx.fillStyle = active && idx === pts.length - 1 ? '#ef4444' : '#38bdf8';
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1.5 / state.zoom;
-    ctx.stroke();
-  });
-
-  // 区間寸法ラベル描画
-  if (showSegmentDist && state.scalePxPerMm && pts.length > 1) {
-    ctx.font = `bold ${Math.max(10 / state.zoom, 9)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-
-    for (let i = 1; i < pts.length; i++) {
-      const p1 = pts[i - 1];
-      const p2 = pts[i];
-      const segPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      const segMm = segPx / state.scalePxPerMm;
-      if (segPx * state.zoom < 25) continue; // 画面上で小さすぎる場合は省略
-
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2;
-      const text = state.unit === 'm' ? `${(segMm / 1000).toFixed(2)}m` : `${Math.round(segMm)}`;
-
-      // ラベル背景
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-      const textWidth = ctx.measureText(text).width;
-      ctx.fillRect(midX - textWidth / 2 - 3 / state.zoom, midY - 14 / state.zoom, textWidth + 6 / state.zoom, 13 / state.zoom);
-
-      // ラベル文字
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillText(text, midX, midY - 2 / state.zoom);
-    }
-  }
-
-  ctx.restore();
-}
-
-function drawScaleMarkers() {
-  ctx.save();
-  ctx.strokeStyle = '#f59e0b';
-  ctx.lineWidth = 3 / state.zoom;
-  ctx.setLineDash([6 / state.zoom, 4 / state.zoom]);
-
-  if (state.scalePoints.length === 2) {
-    ctx.beginPath();
-    ctx.moveTo(state.scalePoints[0].x, state.scalePoints[0].y);
-    ctx.lineTo(state.scalePoints[1].x, state.scalePoints[1].y);
-    ctx.stroke();
-  }
-
-  ctx.setLineDash([]);
-  state.scalePoints.forEach((pt, i) => {
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, 6 / state.zoom, 0, Math.PI * 2);
-    ctx.fillStyle = '#f59e0b';
-    ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2 / state.zoom;
-    ctx.stroke();
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${Math.max(13 / state.zoom, 11)}px sans-serif`;
-    ctx.fillText(`P${i+1}`, pt.x + 8 / state.zoom, pt.y - 8 / state.zoom);
-  });
-  ctx.restore();
-}
-
-/**
- * 案A：マイクロ吸着
- */
-function snapToIntersection(targetX, targetY) {
-  const radius = 15;
-  const startX = Math.max(0, Math.floor(targetX - radius));
-  const startY = Math.max(0, Math.floor(targetY - radius));
-  const size = radius * 2;
-
-  if (startX + size > canvas.width || startY + size > canvas.height) {
-    return { x: targetX, y: targetY };
-  }
-
-  try {
-    const imgData = ctx.getImageData(startX, startY, size, size);
-    const data = imgData.data;
-    let sumX = 0, sumY = 0, count = 0;
-
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const idx = (y * size + x) * 4;
-        const brightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
-        if (brightness < 120) {
-          sumX += x;
-          sumY += y;
-          count++;
-        }
+    // 2. 動画読込
+    document.getElementById('f-video').addEventListener('change', function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      if (v.srcObject) {
+        v.srcObject.getTracks().forEach(function(t) { t.stop(); });
+        v.srcObject = null;
       }
-    }
-
-    if (count > 10 && count < (size * size * 0.7)) {
-      const cx = startX + (sumX / count);
-      const cy = startY + (sumY / count);
-      return { x: Math.round(cx * 10) / 10, y: Math.round(cy * 10) / 10 };
-    }
-  } catch (e) {}
-  return { x: targetX, y: targetY };
-}
-
-/**
- * 直交アシスト（オルソ補正）
- * 直前の点がある場合、X軸またはY軸のズレが小さい方を強制一致させて直角を維持
- */
-function applyOrthoSnap(targetPt) {
-  if (!state.orthoMode || state.currentPoints.length === 0) {
-    return targetPt;
-  }
-  const lastPt = state.currentPoints[state.currentPoints.length - 1];
-  const dx = Math.abs(targetPt.x - lastPt.x);
-  const dy = Math.abs(targetPt.y - lastPt.y);
-
-  if (dx >= dy) {
-    // 水平方向を維持
-    return { x: targetPt.x, y: lastPt.y };
-  } else {
-    // 垂直方向を維持
-    return { x: lastPt.x, y: targetPt.y };
-  }
-}
-
-function updateLoupe(screenX, screenY, canvasX, canvasY) {
-  loupe.style.display = 'block';
-  const offsetTop = 75;
-  const offsetLeft = 20;
-  let posX = screenX + offsetLeft;
-  let posY = screenY - offsetTop - 140;
-
-  if (posY < 10) posY = screenY + 30;
-  if (posX + 140 > window.innerWidth) posX = screenX - 160;
-
-  loupe.style.left = `${posX}px`;
-  loupe.style.top = `${posY}px`;
-
-  const zoomFactor = 2.5;
-  const sampleSize = 140 / zoomFactor;
-  loupeCtx.clearRect(0, 0, 140, 140);
-  loupeCtx.imageSmoothingEnabled = false;
-
-  loupeCtx.drawImage(
-    canvas,
-    canvasX - sampleSize / 2, canvasY - sampleSize / 2, sampleSize, sampleSize,
-    0, 0, 140, 140
-  );
-}
-
-function hideLoupe() {
-  loupe.style.display = 'none';
-}
-
-function getCanvasCoords(clientX, clientY) {
-  const rect = viewport.getBoundingClientRect();
-  const x = (clientX - rect.left - state.viewX) / state.zoom;
-  const y = (clientY - rect.top - state.viewY) / state.zoom;
-  return { x, y };
-}
-
-/**
- * タッチ・ポインター制御
- */
-let isPointerDown = false;
-let startPointerPos = { x: 0, y: 0 };
-let lastPointerPos = { x: 0, y: 0 };
-let lastMoveTime = 0;
-let isMultiTouch = false;
-let pinchStartDistance = 0;
-let pinchStartZoom = 1;
-let pinchCenterCanvas = { x: 0, y: 0 };
-let currentTargetSnapped = null;
-
-viewport.addEventListener('touchstart', (e) => {
-  if (e.touches.length >= 2) {
-    isMultiTouch = true;
-    hideLoupe();
-
-    const t1 = e.touches[0];
-    const t2 = e.touches[1];
-    pinchStartDistance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-    pinchStartZoom = state.zoom;
-
-    const center = {
-      x: (t1.clientX + t2.clientX) / 2,
-      y: (t1.clientY + t2.clientY) / 2
-    };
-    const rect = viewport.getBoundingClientRect();
-    pinchCenterCanvas = {
-      x: (center.x - rect.left - state.viewX) / state.zoom,
-      y: (center.y - rect.top - state.viewY) / state.zoom
-    };
-  }
-}, { passive: true });
-
-viewport.addEventListener('touchmove', (e) => {
-  if (isMultiTouch && e.touches.length >= 2) {
-    const t1 = e.touches[0];
-    const t2 = e.touches[1];
-    const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-    if (pinchStartDistance > 0) {
-      const scaleFactor = currentDist / pinchStartDistance;
-      const targetZoom = Math.min(Math.max(pinchStartZoom * scaleFactor, state.minZoom), state.maxZoom);
-
-      const currentCenter = {
-        x: (t1.clientX + t2.clientX) / 2,
-        y: (t1.clientY + t2.clientY) / 2
-      };
-
-      const rect = viewport.getBoundingClientRect();
-      state.zoom = targetZoom;
-      state.viewX = (currentCenter.x - rect.left) - pinchCenterCanvas.x * targetZoom;
-      state.viewY = (currentCenter.y - rect.top) - pinchCenterCanvas.y * targetZoom;
-
-      render();
-    }
-  }
-}, { passive: true });
-
-viewport.addEventListener('touchend', (e) => {
-  if (e.touches.length < 2) {
-    setTimeout(() => { isMultiTouch = false; }, 140);
-  }
-}, { passive: true });
-
-viewport.addEventListener('pointerdown', (e) => {
-  if (isMultiTouch) return;
-  if (e.target !== canvas && e.target !== viewport) return;
-
-  isPointerDown = true;
-  startPointerPos = { x: e.clientX, y: e.clientY };
-  lastPointerPos = { x: e.clientX, y: e.clientY };
-  lastMoveTime = Date.now();
-
-  const coords = getCanvasCoords(e.clientX, e.clientY);
-
-  if (state.mode === 'scale' || state.mode === 'corner') {
-    let snapped = snapToIntersection(coords.x, coords.y);
-    if (state.mode === 'corner') snapped = applyOrthoSnap(snapped);
-    currentTargetSnapped = snapped;
-    updateLoupe(e.clientX, e.clientY, snapped.x, snapped.y);
-  } else if (state.mode === 'trace') {
-    state.currentPoints.push({ x: coords.x, y: coords.y });
-    render();
-  }
-});
-
-viewport.addEventListener('pointermove', (e) => {
-  if (!isPointerDown || isMultiTouch) return;
-
-  const now = Date.now();
-  const coords = getCanvasCoords(e.clientX, e.clientY);
-
-  if (state.mode === 'view') {
-    const dx = e.clientX - lastPointerPos.x;
-    const dy = e.clientY - lastPointerPos.y;
-    state.viewX += dx;
-    state.viewY += dy;
-    lastPointerPos = { x: e.clientX, y: e.clientY };
-    lastMoveTime = now;
-    render();
-    return;
-  }
-
-  if (state.mode === 'scale' || state.mode === 'corner') {
-    let snapped = snapToIntersection(coords.x, coords.y);
-    if (state.mode === 'corner') snapped = applyOrthoSnap(snapped);
-    currentTargetSnapped = snapped;
-    updateLoupe(e.clientX, e.clientY, snapped.x, snapped.y);
-    lastPointerPos = { x: e.clientX, y: e.clientY };
-    lastMoveTime = now;
-  } else if (state.mode === 'trace') {
-    state.currentPoints.push({ x: coords.x, y: coords.y });
-    render();
-  }
-});
-
-viewport.addEventListener('pointerup', (e) => {
-  if (!isPointerDown) return;
-  isPointerDown = false;
-  hideLoupe();
-
-  if (isMultiTouch) return;
-
-  const now = Date.now();
-  const timeSinceLastMove = now - lastMoveTime;
-  const distFromStart = Math.hypot(e.clientX - startPointerPos.x, e.clientY - startPointerPos.y);
-
-  // 静止判定
-  const isStationaryRelease = (timeSinceLastMove >= 60) || (distFromStart < 12);
-
-  if ((state.mode === 'corner' || state.mode === 'scale') && isStationaryRelease) {
-    let targetPt = currentTargetSnapped || snapToIntersection(getCanvasCoords(e.clientX, e.clientY).x, getCanvasCoords(e.clientX, e.clientY).y);
-    if (state.mode === 'corner') targetPt = applyOrthoSnap(targetPt);
-
-    if (state.mode === 'scale') {
-      state.scalePoints.push(targetPt);
-      render();
-      if (state.scalePoints.length === 2) {
-        openScaleModal();
-      }
-    } else if (state.mode === 'corner') {
-      state.currentPoints.push(targetPt);
-      render();
-    }
-  }
-
-  currentTargetSnapped = null;
-});
-
-/**
- * 距離計算・表示（水平 + 立ち上げ余長）
- */
-function calculateDistance(pts) {
-  if (pts.length < 2) return 0;
-  let pxTotal = 0;
-  for (let i = 1; i < pts.length; i++) {
-    pxTotal += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-  }
-  if (!state.scalePxPerMm) return pxTotal;
-  return pxTotal / state.scalePxPerMm; // mm
-}
-
-function updateStats() {
-  const horizontalMm = calculateDistance(state.currentPoints);
-  const extraMm = state.extraLengthM * 1000;
-  const totalMm = horizontalMm > 0 ? (horizontalMm + extraMm) : 0;
-
-  const statEl = document.getElementById('statDistance');
-  const breakdownEl = document.getElementById('statBreakdown');
-
-  if (!state.scalePxPerMm) {
-    statEl.textContent = `${Math.round(horizontalMm)} px`;
-    breakdownEl.textContent = '縮尺を設定してください';
-    return;
-  }
-
-  if (state.unit === 'm') {
-    statEl.textContent = `${(totalMm / 1000).toFixed(2)} m`;
-    breakdownEl.textContent = `水平: ${(horizontalMm / 1000).toFixed(2)}m | 余長: ${state.extraLengthM.toFixed(1)}m`;
-  } else {
-    statEl.textContent = `${Math.round(totalMm)} mm`;
-    breakdownEl.textContent = `水平: ${Math.round(horizontalMm)}mm | 余長: ${Math.round(extraMm)}mm`;
-  }
-}
-
-/**
- * 図面画像エクスポート（寸法・ルート入りPNG）
- */
-document.getElementById('btnExportImage').addEventListener('click', () => {
-  if (!state.planImage) {
-    showToast('図面が読み込まれていません');
-    return;
-  }
-
-  showToast('画像生成中...');
-
-  // エクスポート用の一時フルサイズキャンバス
-  const expCanvas = document.createElement('canvas');
-  expCanvas.width = state.planWidth;
-  expCanvas.height = state.planHeight;
-  const expCtx = expCanvas.getContext('2d');
-
-  // 1. 元図面描画
-  expCtx.drawImage(state.planImage, 0, 0, expCanvas.width, expCanvas.height);
-
-  // 2. 確定ルート描画
-  state.routes.forEach(route => {
-    drawExportPath(expCtx, route.points, '#0284c7', 4);
-  });
-  // 3. 現在の計測中ルート描画
-  if (state.currentPoints.length > 0) {
-    drawExportPath(expCtx, state.currentPoints, '#38bdf8', 4);
-  }
-
-  // 4. 合計情報スタンプを左上に配置
-  const hMm = calculateDistance(state.currentPoints);
-  const totalM = ((hMm + state.extraLengthM * 1000) / 1000).toFixed(2);
-  const stampText = `H M-r 計測: ${totalM} m (水平:${(hMm/1000).toFixed(2)}m + 余長:${state.extraLengthM.toFixed(1)}m)`;
-
-  expCtx.save();
-  expCtx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-  expCtx.fillRect(20, 20, 420, 50);
-  expCtx.fillStyle = '#38bdf8';
-  expCtx.font = 'bold 20px sans-serif';
-  expCtx.fillText(stampText, 35, 52);
-  expCtx.restore();
-
-  // ダウンロード処理
-  const link = document.createElement('a');
-  link.download = `plan_measured_${Date.now()}.png`;
-  link.href = expCanvas.toDataURL('image/png');
-  link.click();
-  showToast('画像をエクスポートしました');
-});
-
-function drawExportPath(eCtx, pts, color, lineWidth) {
-  if (pts.length === 0) return;
-  eCtx.save();
-  eCtx.strokeStyle = color;
-  eCtx.lineWidth = lineWidth;
-  eCtx.lineCap = 'round';
-  eCtx.lineJoin = 'round';
-
-  eCtx.beginPath();
-  eCtx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) {
-    eCtx.lineTo(pts[i].x, pts[i].y);
-  }
-  eCtx.stroke();
-
-  pts.forEach(pt => {
-    eCtx.beginPath();
-    eCtx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
-    eCtx.fillStyle = '#38bdf8';
-    eCtx.fill();
-    eCtx.strokeStyle = '#fff';
-    eCtx.lineWidth = 2;
-    eCtx.stroke();
-  });
-
-  // 区間寸法ラベル描画
-  if (state.scalePxPerMm && pts.length > 1) {
-    eCtx.font = 'bold 16px sans-serif';
-    eCtx.textAlign = 'center';
-    eCtx.textBaseline = 'bottom';
-
-    for (let i = 1; i < pts.length; i++) {
-      const p1 = pts[i - 1];
-      const p2 = pts[i];
-      const segMm = Math.hypot(p2.x - p1.x, p2.y - p1.y) / state.scalePxPerMm;
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2;
-      const text = state.unit === 'm' ? `${(segMm / 1000).toFixed(2)}m` : `${Math.round(segMm)}`;
-
-      eCtx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-      const tWidth = eCtx.measureText(text).width;
-      eCtx.fillRect(midX - tWidth / 2 - 4, midY - 22, tWidth + 8, 20);
-
-      eCtx.fillStyle = '#ffffff';
-      eCtx.fillText(text, midX, midY - 4);
-    }
-  }
-  eCtx.restore();
-}
-
-/**
- * ファイル読込（PDF / 画像）
- */
-document.getElementById('fileInput').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  showToast('図面を読み込み中...');
-
-  if (file.type === 'application/pdf') {
-    const reader = new FileReader();
-    reader.onload = async function() {
-      const typedarray = new Uint8Array(this.result);
-      try {
-        const pdf = await pdfjsLib.getDocument(typedarray).promise;
-        const page = await pdf.getPage(1);
-        const viewportDef = page.getViewport({ scale: 1.5 });
-
-        const offCanvas = document.createElement('canvas');
-        const offCtx = offCanvas.getContext('2d');
-        offCanvas.width = viewportDef.width;
-        offCanvas.height = viewportDef.height;
-
-        await page.render({ canvasContext: offCtx, viewport: viewportDef }).promise;
-        const img = new Image();
-        img.onload = () => { applyLoadedPlan(img, img.src); };
-        img.src = offCanvas.toDataURL('image/jpeg', 0.85);
-      } catch (err) {
-        alert('PDF読込エラー: ' + err.message);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  } else {
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-      const img = new Image();
-      img.onload = () => { applyLoadedPlan(img, evt.target.result); };
-      img.src = evt.target.result;
-    };
-    reader.readAsDataURL(file);
-  }
-});
-
-function applyLoadedPlan(img, rawDataUrl) {
-  setupCanvasSize(img.width, img.height);
-  state.planImage = img;
-  state.viewX = 0;
-  state.viewY = 0;
-  state.zoom = Math.min(viewport.clientWidth / img.width, viewport.clientHeight / img.height, 1);
-  state.routes = [];
-  state.currentPoints = [];
-  render();
-  saveStorage('savedPlan', rawDataUrl);
-  showToast('図面読込完了');
-}
-
-/**
- * 直交アシスト（オルソ）トグル
- */
-const btnOrthoToggle = document.getElementById('btnOrthoToggle');
-btnOrthoToggle.addEventListener('click', () => {
-  state.orthoMode = !state.orthoMode;
-  btnOrthoToggle.textContent = state.orthoMode ? '直交: ON' : '直交: OFF';
-  btnOrthoToggle.classList.toggle('active', state.orthoMode);
-  showToast(state.orthoMode ? '直交アシストON (水平・垂直固定)' : '直交アシストOFF');
-});
-
-/**
- * 立ち上げ・余長モーダル
- */
-const extraModal = document.getElementById('extraModal');
-const extraInputM = document.getElementById('extraInputM');
-
-document.getElementById('btnOpenExtra').addEventListener('click', () => {
-  extraInputM.value = state.extraLengthM || '';
-  extraModal.classList.add('open');
-});
-
-document.querySelectorAll('.extra-badge').forEach(btn => {
-  btn.addEventListener('click', () => {
-    extraInputM.value = btn.dataset.m;
-  });
-});
-
-document.getElementById('btnConfirmExtra').addEventListener('click', () => {
-  state.extraLengthM = parseFloat(extraInputM.value) || 0;
-  extraModal.classList.remove('open');
-  updateStats();
-  showToast(`余長 ${state.extraLengthM.toFixed(1)}m を加算`);
-});
-document.getElementById('btnCancelExtra').addEventListener('click', () => {
-  extraModal.classList.remove('open');
-});
-
-/**
- * 縮尺設定モーダル
- */
-const scaleModal = document.getElementById('scaleModal');
-const scaleInputMm = document.getElementById('scaleInputMm');
-
-function openScaleModal() {
-  scaleInputMm.value = '';
-  scaleModal.classList.add('open');
-}
-
-document.querySelectorAll('.scale-badge').forEach(btn => {
-  btn.addEventListener('click', () => {
-    scaleInputMm.value = btn.dataset.val;
-  });
-});
-
-document.getElementById('btnConfirmScale').addEventListener('click', () => {
-  const mmVal = parseFloat(scaleInputMm.value);
-  if (!mmVal || mmVal <= 0) {
-    alert('有効な数値を入力してください');
-    return;
-  }
-  const p1 = state.scalePoints[0];
-  const p2 = state.scalePoints[1];
-  const pxDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-
-  state.scalePxPerMm = pxDist / mmVal;
-  saveStorage('scalePxPerMm', state.scalePxPerMm);
-
-  scaleModal.classList.remove('open');
-  state.scalePoints = [];
-  setMode('corner');
-  document.getElementById('scaleStatusBadge').textContent = `1m = ${(state.scalePxPerMm * 1000).toFixed(1)}px`;
-  showToast('縮尺を設定しました');
-  render();
-});
-
-document.getElementById('btnCancelScale').addEventListener('click', () => {
-  scaleModal.classList.remove('open');
-  state.scalePoints = [];
-  setMode('corner');
-  render();
-});
-
-/**
- * モード切替
- */
-function setMode(newMode) {
-  state.mode = newMode;
-  ['modeCorner', 'modeTrace', 'modeView'].forEach(id => {
-    document.getElementById(id).classList.remove('active');
-  });
-  if (newMode === 'corner') document.getElementById('modeCorner').classList.add('active');
-  if (newMode === 'trace') document.getElementById('modeTrace').classList.add('active');
-  if (newMode === 'view') document.getElementById('modeView').classList.add('active');
-}
-
-document.getElementById('modeCorner').addEventListener('click', () => setMode('corner'));
-document.getElementById('modeTrace').addEventListener('click', () => setMode('trace'));
-document.getElementById('modeView').addEventListener('click', () => setMode('view'));
-
-document.getElementById('btnSetScale').addEventListener('click', () => {
-  state.mode = 'scale';
-  state.scalePoints = [];
-  showToast('基準となる2点を指定してください');
-  render();
-});
-
-// 操作ボタン
-document.getElementById('btnUndo').addEventListener('click', () => {
-  if (state.currentPoints.length > 0) {
-    state.currentPoints.pop();
-  } else if (state.routes.length > 0) {
-    state.routes.pop();
-  }
-  render();
-});
-
-document.getElementById('btnClear').addEventListener('click', () => {
-  if (confirm('計測線路をすべて消去しますか？')) {
-    state.currentPoints = [];
-    state.routes = [];
-    render();
-  }
-});
-
-document.getElementById('btnUnitToggle').addEventListener('click', () => {
-  state.unit = state.unit === 'm' ? 'mm' : 'm';
-  document.getElementById('btnUnitToggle').textContent = state.unit;
-  updateStats();
-  render();
-});
-
-// 記録保存 & ログ
-document.getElementById('btnSaveLog').addEventListener('click', () => {
-  if (state.currentPoints.length < 2) {
-    showToast('計測点が不足しています');
-    return;
-  }
-  const hMm = calculateDistance(state.currentPoints);
-  const totalM = ((hMm + state.extraLengthM * 1000) / 1000).toFixed(2);
-  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const entry = `[${timeStr}] 合計: ${totalM}m (水平:${(hMm/1000).toFixed(2)}m + 余長:${state.extraLengthM.toFixed(1)}m, 点数:${state.currentPoints.length})`;
-
-  state.logs.push(entry);
-  state.routes.push({ points: [...state.currentPoints] });
-  state.currentPoints = [];
-  saveStorage('logs', state.logs);
-  showToast('記録を保存しました');
-  render();
-});
-
-const logModal = document.getElementById('logModal');
-document.getElementById('btnLogModal').addEventListener('click', () => {
-  const logList = document.getElementById('logList');
-  if (state.logs.length === 0) {
-    logList.innerHTML = '<p style="color:#64748b;">記録がありません</p>';
-  } else {
-    logList.innerHTML = state.logs.map((l, i) => `<div>${i+1}. ${l}</div>`).join('');
-  }
-  logModal.classList.add('open');
-});
-document.getElementById('btnCloseLog').addEventListener('click', () => logModal.classList.remove('open'));
-
-document.getElementById('btnCopyLog').addEventListener('click', () => {
-  if (state.logs.length === 0) return;
-  navigator.clipboard.writeText(state.logs.join('\n')).then(() => {
-    showToast('ログをコピーしました');
-  });
-});
-
-// D-Pad パン操作
-document.querySelectorAll('.dbtn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const dir = btn.dataset.pan;
-    const step = 45;
-    if (dir === 'up') state.viewY += step;
-    if (dir === 'down') state.viewY -= step;
-    if (dir === 'left') state.viewX += step;
-    if (dir === 'right') state.viewX -= step;
-    render();
-  });
-});
-
-// ズーム操作
-document.getElementById('btnZoomIn').addEventListener('click', () => {
-  const cx = viewport.clientWidth / 2;
-  const cy = viewport.clientHeight / 2;
-  const targetZoom = Math.min(state.zoom * 1.3, state.maxZoom);
-  state.viewX = cx - (cx - state.viewX) * (targetZoom / state.zoom);
-  state.viewY = cy - (cy - state.viewY) * (targetZoom / state.zoom);
-  state.zoom = targetZoom;
-  render();
-});
-document.getElementById('btnZoomOut').addEventListener('click', () => {
-  const cx = viewport.clientWidth / 2;
-  const cy = viewport.clientHeight / 2;
-  const targetZoom = Math.max(state.zoom / 1.3, state.minZoom);
-  state.viewX = cx - (cx - state.viewX) * (targetZoom / state.zoom);
-  state.viewY = cy - (cy - state.viewY) * (targetZoom / state.zoom);
-  state.zoom = targetZoom;
-  render();
-});
-document.getElementById('btnZoomReset').addEventListener('click', () => {
-  if (!state.planWidth) return;
-  state.viewX = 0;
-  state.viewY = 0;
-  state.zoom = Math.min(viewport.clientWidth / state.planWidth, viewport.clientHeight / state.planHeight, 1);
-  render();
-});
-
-/**
- * ページ起動時：IndexedDB復元
- */
-window.addEventListener('DOMContentLoaded', async () => {
-  await initDB();
-  const savedScale = await loadStorage('scalePxPerMm');
-  if (savedScale) {
-    state.scalePxPerMm = savedScale;
-    document.getElementById('scaleStatusBadge').textContent = `1m = ${(savedScale * 1000).toFixed(1)}px`;
-  }
-  const savedLogs = await loadStorage('logs');
-  if (savedLogs) {
-    state.logs = savedLogs;
-  }
-  const savedPlan = await loadStorage('savedPlan');
-  if (savedPlan) {
-    const img = new Image();
-    img.onload = () => {
-      setupCanvasSize(img.width, img.height);
-      state.planImage = img;
-      state.zoom = Math.min(viewport.clientWidth / img.width, viewport.clientHeight / img.height, 1);
-      render();
-      showToast('前回の図面を復元しました');
-    };
-    img.src = savedPlan;
-  }
-});
-</script>
-</body>
-</html>
+      v.src = URL.createObjectURL(file);
+      vBar.style.display = 'flex';
+      v.play();
+      msg.innerText = "動画テスト中";
+      isPaused = false;
+      bPause.innerText = '一時停止 ⏸';
+      startLoop();
+    });
+
+    // 3. 動画コントローラー
+    var vbPlay = document.getElementById('vb-play');
+    vbPlay.addEventListener('click', function() {
+      if (v.paused) { v.play(); vbPlay.innerText = '一時停止 ⏸'; }
+      else { v.pause(); vbPlay.innerText = '再生 ▶'; }
+    });
+    document.getElementById('vb-b1').addEventListener('click', function() { v.currentTime = Math.max(0, v.currentTime - 1); });
+    document.getElementById('vb-f1').addEventListener('click', function() { v.currentTime = Math.min(v.duration || 999, v.currentTime + 1); });
+    document.getElementById('vb-bstep').addEventListener('click', function() { v.pause(); vbPlay.innerText = '再生 ▶'; v.currentTime = Math.max(0, v.currentTime - 0.033); });
+    document.getElementById('vb-fstep').addEventListener('click', function() { v.pause(); vbPlay.innerText = '再生 ▶'; v.currentTime = Math.min(v.duration || 999, v.currentTime + 0.033); });
+
+    v.addEventListener('timeupdate', function() {
+      if (v.duration) vTime.innerText = v.currentTime.toFixed(1) + 's / ' + v.duration.toFixed(1) + 's';
+    });
+
+    // 4. 手動加減算・リセット
+    document.getElementById('b-p01').addEventListener('click', function() { totalDist +=
