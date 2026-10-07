@@ -1,440 +1,1169 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>(仮称)カメラ式ケーブル距離計</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      width: 100%;
-      height: 100%;
-      background: #000;
-      color: #fff;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-    header {
-      background: #111;
-      padding: 8px 14px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid #333;
-      flex-shrink: 0;
-      z-index: 30;
-    }
-    .title { font-size: 14px; font-weight: bold; color: #4ade80; }
-    #fps { font-size: 12px; color: #aaa; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>H M-r - 図面動線・距離計測</title>
+<!-- PDF.js (CDN経由・最小構成) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window['pdfjs-dist/build/pdf']) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
+<style>
+  :root {
+    --primary: #0284c7;
+    --primary-dark: #0369a1;
+    --accent: #f59e0b;
+    --danger: #ef4444;
+    --bg-dark: #0b1120;
+    --panel-bg: rgba(15, 23, 42, 0.92);
+    --text-light: #f8fafc;
+    --border-ui: #334155;
+  }
+  * {
+    box-sizing: border-box;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    margin: 0;
+    padding: 0;
+  }
+  body, html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-dark);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    color: var(--text-light);
+  }
+  #app {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100dvh;
+    position: relative;
+  }
 
-    #stage {
-      position: relative;
-      flex: 1;
-      width: 100%;
-      background: #000;
-      overflow: hidden;
-    }
-    video {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    #overlay {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 10;
-      pointer-events: none;
-    }
+  /* 上部ヘッダー */
+  header {
+    height: 44px;
+    background: var(--panel-bg);
+    backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--border-ui);
+    z-index: 25;
+    flex-shrink: 0;
+  }
+  .title-area {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .badge-scale {
+    font-size: 11px;
+    padding: 2px 6px;
+    background: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    color: #38bdf8;
+  }
+  .header-actions {
+    display: flex;
+    gap: 6px;
+  }
 
-    #dash {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-      right: 8px;
-      z-index: 20;
-      display: flex;
-      gap: 8px;
-    }
-    .card {
-      flex: 1;
-      background: rgba(0, 0, 0, 0.75);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 8px;
-      padding: 6px 10px;
-      text-align: center;
-    }
-    .card-lbl { font-size: 10px; color: #aaa; }
-    .card-val { font-size: 24px; font-weight: bold; }
-    .card-unit { font-size: 11px; color: #888; margin-left: 2px; }
+  /* ボタン共通 */
+  button, .btn-label {
+    background: #1e293b;
+    color: #f8fafc;
+    border: 1px solid var(--border-ui);
+    padding: 5px 9px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  button:active, .btn-label:active {
+    background: #334155;
+    transform: scale(0.97);
+  }
+  button.active {
+    background: var(--primary);
+    border-color: #38bdf8;
+    color: #fff;
+  }
+  button.accent {
+    background: #d97706;
+    border-color: #f59e0b;
+  }
+  button.danger {
+    background: #991b1b;
+    border-color: var(--danger);
+  }
 
-    /* テスト用動画操作バー */
-    #v-bar {
-      position: absolute;
-      bottom: 10px;
-      left: 8px;
-      right: 8px;
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid #38bdf8;
-      border-radius: 8px;
-      padding: 6px 8px;
-      z-index: 25;
-      display: none;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .v-row { display: flex; gap: 4px; align-items: center; }
-    .v-btn {
-      flex: 1;
-      background: #1e293b;
-      color: #fff;
-      border: 1px solid #475569;
-      padding: 6px 0;
-      border-radius: 4px;
-      font-size: 11px;
-      text-align: center;
-    }
+  /* メイン作業ビューポート */
+  #viewport {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #1e293b;
+    touch-action: none;
+  }
+  #drawingCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    cursor: crosshair;
+  }
 
-    /* エラー・状態表示 */
-    #msg {
-      position: absolute;
-      top: 75px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.85);
-      color: #38bdf8;
-      padding: 4px 12px;
-      border-radius: 12px;
-      font-size: 11px;
-      z-index: 20;
-      white-space: nowrap;
-    }
+  /* 大型・高視認性 測定距離ウィンドウ */
+  #mainDistancePanel {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.95);
+    border: 2px solid #0284c7;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    border-radius: 10px;
+    padding: 6px 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    z-index: 24;
+    pointer-events: auto;
+  }
+  #statDistance {
+    font-size: 26px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: #38bdf8;
+    letter-spacing: 0.5px;
+  }
+  #btnUnitToggle {
+    font-size: 12px;
+    padding: 3px 8px;
+    background: #0f172a;
+    border: 1px solid #38bdf8;
+    color: #f8fafc;
+    border-radius: 4px;
+  }
 
-    footer {
-      background: #111;
-      padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 10px));
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      border-top: 1px solid #333;
-      flex-shrink: 0;
-      z-index: 30;
-    }
-    .btn-row { display: flex; gap: 6px; }
-    button, label.btn {
-      flex: 1;
-      background: #2a2a2a;
-      color: #fff;
-      border: 1px solid #444;
-      padding: 9px 0;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      text-align: center;
-      cursor: pointer;
-    }
-    button.green { background: #16a34a; border-color: #15803d; }
-    button.orange { background: #d97706; border-color: #b45309; }
-    input[type="file"] { display: none; }
-  </style>
+  /* 拡大ルーペ（案A照準拡大鏡） */
+  #loupe {
+    position: absolute;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    border: 3px solid #38bdf8;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    pointer-events: none;
+    display: none;
+    z-index: 100;
+    overflow: hidden;
+    background: #000;
+  }
+  #loupeCanvas {
+    width: 100%;
+    height: 100%;
+  }
+  .loupe-reticle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .loupe-cross-v {
+    position: absolute;
+    width: 1px;
+    height: 50px;
+    background: #ef4444;
+    left: 0;
+    top: -25px;
+  }
+  .loupe-cross-h {
+    position: absolute;
+    height: 1px;
+    width: 50px;
+    background: #ef4444;
+    top: 0;
+    left: -25px;
+  }
+  .loupe-ring {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border: 1px dashed #38bdf8;
+    border-radius: 50%;
+    top: -8px;
+    left: -8px;
+  }
+
+  /* D-Pad */
+  #dpad {
+    position: absolute;
+    left: 12px;
+    bottom: 100px;
+    width: 86px;
+    height: 86px;
+    background: rgba(15, 23, 42, 0.7);
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15);
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr 1fr;
+    z-index: 30;
+    backdrop-filter: blur(8px);
+  }
+  .dbtn {
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 11px;
+    padding: 0;
+  }
+  .dbtn:active {
+    color: #fff;
+    background: rgba(255,255,255,0.2);
+  }
+
+  /* ズームコントローラ */
+  #zoomControls {
+    position: absolute;
+    right: 12px;
+    bottom: 100px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 30;
+  }
+  .circle-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 18px;
+    padding: 0;
+  }
+
+  /* 下部操作ツールバー */
+  #bottomBar {
+    background: var(--panel-bg);
+    border-top: 1px solid var(--border-ui);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 25;
+    backdrop-filter: blur(12px);
+  }
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .mode-selector {
+    display: flex;
+    flex: 1;
+    background: #0f172a;
+    padding: 3px;
+    border-radius: 8px;
+    border: 1px solid var(--border-ui);
+    gap: 4px;
+  }
+  .mode-selector button {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 7px 4px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+  .mode-selector button.active {
+    background: var(--primary);
+  }
+
+  /* モーダル */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100dvh;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.2s, visibility 0.2s;
+  }
+  .modal-overlay.open {
+    visibility: visible;
+    opacity: 1;
+  }
+  .modal-box {
+    width: 88%;
+    max-width: 360px;
+    background: #0f172a;
+    border: 1px solid var(--border-ui);
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: 0 16px 32px rgba(0,0,0,0.5);
+  }
+  .modal-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: #f8fafc;
+  }
+  .preset-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0;
+  }
+  .badge-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #38bdf8;
+    padding: 5px 9px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+  .text-input {
+    width: 100%;
+    padding: 10px;
+    background: #1e293b;
+    border: 1px solid var(--border-ui);
+    color: #fff;
+    font-size: 16px;
+    border-radius: 6px;
+    outline: none;
+    margin-bottom: 12px;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .toast {
+    position: fixed;
+    top: 56px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(2, 132, 199, 0.95);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 300;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+</style>
 </head>
 <body>
-
+<div id="app">
+  <!-- 上部ヘッダー -->
   <header>
-    <div class="title">(仮称)カメラ式ケーブル距離計</div>
-    <div id="fps">0 FPS</div>
+    <div class="title-area">
+      <span>H M-r</span>
+      <span id="scaleStatusBadge" class="badge-scale">未校正</span>
+    </div>
+    <div class="header-actions">
+      <label class="btn-label" for="fileInput">📁 図面</label>
+      <input type="file" id="fileInput" accept="image/*,application/pdf" style="display:none;">
+      <button id="btnSetScale" class="accent">📏 縮尺設定(案A)</button>
+      <button id="btnLogModal">📋 ログ</button>
+    </div>
   </header>
 
-  <div id="stage">
-    <video id="v" playsinline webkit-playsinline muted autoplay loop></video>
-    <canvas id="c-proc" style="display:none;"></canvas>
-    <canvas id="overlay"></canvas>
+  <!-- キャンバス操作エリア -->
+  <div id="viewport">
+    <canvas id="drawingCanvas"></canvas>
 
-    <div id="dash">
-      <div class="card">
-        <div class="card-lbl">延線距離</div>
-        <div><span id="txt-dist" class="card-val">0.00</span><span class="card-unit">m</span></div>
-      </div>
-      <div class="card">
-        <div class="card-lbl">速度 (平均)</div>
-        <div><span id="txt-speed" class="card-val">0.0</span><span class="card-unit">m/分</span></div>
+    <!-- 大型 測定距離表示 -->
+    <div id="mainDistancePanel">
+      <span id="statDistance">0.00 m</span>
+      <button id="btnUnitToggle">m</button>
+    </div>
+
+    <!-- 拡大ルーペ（案A） -->
+    <div id="loupe">
+      <canvas id="loupeCanvas" width="140" height="140"></canvas>
+      <div class="loupe-reticle">
+        <div class="loupe-cross-v"></div>
+        <div class="loupe-cross-h"></div>
+        <div class="loupe-ring"></div>
       </div>
     </div>
 
-    <div id="msg">下の「カメラ起動」または「動画読込」を押してください</div>
+    <!-- D-Pad -->
+    <div id="dpad">
+      <div></div><button class="dbtn" data-pan="up">▲</button><div></div>
+      <button class="dbtn" data-pan="left">◀</button><div></div><button class="dbtn" data-pan="right">▶</button>
+      <div></div><button class="dbtn" data-pan="down">▼</button><div></div>
+    </div>
 
-    <!-- 動画操作バー（動画読込時のみ表示） -->
-    <div id="v-bar">
-      <div style="display:flex; justify-content:space-between; font-size:10px; color:#38bdf8;">
-        <span>🎬 動画コントローラー</span>
-        <span id="v-time">0.0s</span>
-      </div>
-      <div class="v-row">
-        <button class="v-btn" id="vb-b1">-1秒</button>
-        <button class="v-btn" id="vb-bstep">◀ コマ戻</button>
-        <button class="v-btn" id="vb-play" style="background:#0284c7;">一時停止 ⏸</button>
-        <button class="v-btn" id="vb-fstep">コマ送 ▶</button>
-        <button class="v-btn" id="vb-f1">+1秒</button>
-      </div>
+    <!-- ズーム操作 -->
+    <div id="zoomControls">
+      <button id="btnZoomIn" class="circle-btn">＋</button>
+      <button id="btnZoomOut" class="circle-btn">－</button>
+      <button id="btnZoomReset" class="circle-btn" style="font-size:11px;">Fit</button>
     </div>
   </div>
 
-  <footer>
-    <div class="btn-row">
-      <button id="b-m01">-0.1m</button>
-      <button id="b-p01">+0.1m</button>
-      <button id="b-set">数値設定</button>
-      <button id="b-zero" style="color:#f87171;">0mリセット</button>
+  <!-- 下部操作バー -->
+  <div id="bottomBar">
+    <div class="toolbar-row">
+      <div class="mode-selector">
+        <button id="modeCorner" class="active">②角タップ</button>
+        <button id="modeTrace">③なぞる</button>
+        <button id="modeView">閲覧/移動</button>
+      </div>
     </div>
-    <div class="btn-row">
-      <button id="b-pause" class="orange">一時停止 ⏸</button>
-      <button id="b-cam" class="green">カメラ起動</button>
-      <label class="btn" for="f-video">動画読込</label>
-      <input type="file" id="f-video" accept="video/*">
+    <div class="toolbar-row">
+      <button id="btnUndo" style="flex:1;">↶ 1手戻す</button>
+      <button id="btnClear" class="danger" style="flex:1;">✕ クリア</button>
+      <button id="btnSaveLog" class="active" style="flex:1.5;">💾 記録保存</button>
     </div>
-  </footer>
+  </div>
+</div>
 
-  <script>
-    // 状態管理
-    var scaleFactor = 2.5; // px/mm
-    var totalDist = 0.0;
-    var isRunning = false;
-    var isPaused = false;
+<!-- 縮尺数値入力モーダル -->
+<div id="scaleModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">縮尺実寸法（mm）の入力</div>
+    <p style="font-size:12px; color:#94a3b8; margin-bottom:8px;">指定した2点間の設計寸法を入力または選択してください。</p>
+    <input type="number" id="scaleInputMm" class="text-input" placeholder="例: 3640">
+    <div class="preset-badges">
+      <button class="badge-btn" data-val="910">910</button>
+      <button class="badge-btn" data-val="1820">1820</button>
+      <button class="badge-btn" data-val="2730">2730</button>
+      <button class="badge-btn" data-val="3640">3640</button>
+      <button class="badge-btn" data-val="4550">4550</button>
+      <button class="badge-btn" data-val="9100">9100</button>
+      <button class="badge-btn" data-val="12300">12300</button>
+    </div>
+    <div class="modal-actions">
+      <button id="btnCancelScale">キャンセル</button>
+      <button id="btnConfirmScale" class="accent">設定確定</button>
+    </div>
+  </div>
+</div>
 
-    var speedSamples = [];
-    var lastSpeedTime = performance.now();
-    var currentSpeed = 0.0;
+<!-- 計測ログモーダル -->
+<div id="logModal" class="modal-overlay">
+  <div class="modal-box" style="max-height:80dvh; display:flex; flex-direction:column;">
+    <div class="modal-title">計測履歴・メモ</div>
+    <div id="logList" style="flex:1; overflow-y:auto; font-size:12px; margin-bottom:12px; border:1px solid #334155; padding:6px; border-radius:6px; background:#1e293b;">
+      記録がありません
+    </div>
+    <div class="modal-actions">
+      <button id="btnCopyLog" class="accent">📋 全文コピー</button>
+      <button id="btnCloseLog">閉じる</button>
+    </div>
+  </div>
+</div>
 
-    var lastLoopTime = performance.now();
-    var frameCount = 0;
-    var lastFpsTime = performance.now();
-    var prevProfile = null;
+<div id="toast" class="toast"></div>
 
-    var v = document.getElementById('v');
-    var cProc = document.getElementById('c-proc');
-    var ctxProc = cProc.getContext('2d', { willReadFrequently: true });
-    var overlay = document.getElementById('overlay');
-    var ctxOverlay = overlay.getContext('2d');
+<script>
+/**
+ * IndexedDB 管理
+ */
+const DB_NAME = 'HMr_PlanStore';
+const DB_VERSION = 1;
+let db = null;
 
-    var txtDist = document.getElementById('txt-dist');
-    var txtSpeed = document.getElementById('txt-speed');
-    var txtFps = document.getElementById('fps');
-    var msg = document.getElementById('msg');
-    var vBar = document.getElementById('v-bar');
-    var vTime = document.getElementById('v-time');
-    var bPause = document.getElementById('b-pause');
-
-    // 1. カメラ起動
-    document.getElementById('b-cam').addEventListener('click', function() {
-      vBar.style.display = 'none';
-      msg.innerText = "カメラ起動中...";
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } }
-        }).then(function(stream) {
-          v.srcObject = stream;
-          v.play();
-          msg.innerText = "緑枠にケーブルを合わせてください";
-          isPaused = false;
-          bPause.innerText = '一時停止 ⏸';
-          startLoop();
-        }).catch(function(e) {
-          msg.innerText = "エラー: " + e.message;
-        });
-      } else {
-        msg.innerText = "カメラ非対応ブラウザです";
+function initDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('planData')) {
+        d.createObjectStore('planData');
       }
-    });
+    };
+    req.onsuccess = () => { db = req.result; resolve(db); };
+    req.onerror = () => reject(req.error);
+  });
+}
 
-    // 2. 動画読込
-    document.getElementById('f-video').addEventListener('change', function(e) {
-      var file = e.target.files[0];
-      if (!file) return;
-      if (v.srcObject) {
-        v.srcObject.getTracks().forEach(function(t) { t.stop(); });
-        v.srcObject = null;
+function saveStorage(key, val) {
+  if (!db) return;
+  const tx = db.transaction('planData', 'readwrite');
+  tx.objectStore('planData').put(val, key);
+}
+
+function loadStorage(key) {
+  return new Promise((resolve) => {
+    if (!db) return resolve(null);
+    const tx = db.transaction('planData', 'readonly');
+    const req = tx.objectStore('planData').get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(null);
+  });
+}
+
+// 状態管理
+const state = {
+  mode: 'corner', // 'corner' | 'trace' | 'view' | 'scale'
+  scalePxPerMm: 0,
+  unit: 'm', // 'm' | 'mm'
+  viewX: 0,
+  viewY: 0,
+  zoom: 1,
+  minZoom: 0.08,
+  maxZoom: 8,
+  planImage: null,
+  planWidth: 0,
+  planHeight: 0,
+  routes: [],
+  currentPoints: [],
+  scalePoints: [],
+  logs: []
+};
+
+const viewport = document.getElementById('viewport');
+const canvas = document.getElementById('drawingCanvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const loupe = document.getElementById('loupe');
+const loupeCanvas = document.getElementById('loupeCanvas');
+const loupeCtx = loupeCanvas.getContext('2d');
+const toastEl = document.getElementById('toast');
+
+function showToast(msg) {
+  toastEl.textContent = msg;
+  toastEl.style.opacity = '1';
+  setTimeout(() => { toastEl.style.opacity = '0'; }, 2200);
+}
+
+// iOS Jetsam対策: Canvasサイズクランプ
+const MAX_SAFE_CANVAS_DIM = 2400;
+
+function setupCanvasSize(w, h) {
+  let scale = 1;
+  if (w > MAX_SAFE_CANVAS_DIM || h > MAX_SAFE_CANVAS_DIM) {
+    scale = Math.min(MAX_SAFE_CANVAS_DIM / w, MAX_SAFE_CANVAS_DIM / h);
+  }
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(h * scale);
+  state.planWidth = canvas.width;
+  state.planHeight = canvas.height;
+}
+
+function render() {
+  if (!state.planWidth) return;
+
+  canvas.style.transform = `translate(${state.viewX}px, ${state.viewY}px) scale(${state.zoom})`;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (state.planImage) {
+    ctx.drawImage(state.planImage, 0, 0, canvas.width, canvas.height);
+  }
+
+  // 確定済みルート
+  state.routes.forEach(route => {
+    drawPath(route.points, '#0284c7', 3.5 / state.zoom);
+  });
+
+  // 計測中ルート
+  if (state.currentPoints.length > 0) {
+    drawPath(state.currentPoints, '#38bdf8', 3.5 / state.zoom, true);
+  }
+
+  // 縮尺2点
+  if (state.scalePoints.length > 0) {
+    drawScaleMarkers();
+  }
+
+  updateStats();
+}
+
+function drawPath(pts, color, lineWidth, active = false) {
+  if (pts.length === 0) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(lineWidth, 2);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) {
+    ctx.lineTo(pts[i].x, pts[i].y);
+  }
+  ctx.stroke();
+
+  pts.forEach((pt, idx) => {
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, Math.max(4.5 / state.zoom, 3), 0, Math.PI * 2);
+    ctx.fillStyle = active && idx === pts.length - 1 ? '#ef4444' : '#38bdf8';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5 / state.zoom;
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function drawScaleMarkers() {
+  ctx.save();
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 3 / state.zoom;
+  ctx.setLineDash([6 / state.zoom, 4 / state.zoom]);
+
+  if (state.scalePoints.length === 2) {
+    ctx.beginPath();
+    ctx.moveTo(state.scalePoints[0].x, state.scalePoints[0].y);
+    ctx.lineTo(state.scalePoints[1].x, state.scalePoints[1].y);
+    ctx.stroke();
+  }
+
+  ctx.setLineDash([]);
+  state.scalePoints.forEach((pt, i) => {
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 6 / state.zoom, 0, Math.PI * 2);
+    ctx.fillStyle = '#f59e0b';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2 / state.zoom;
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${Math.max(13 / state.zoom, 11)}px sans-serif`;
+    ctx.fillText(`P${i+1}`, pt.x + 8 / state.zoom, pt.y - 8 / state.zoom);
+  });
+  ctx.restore();
+}
+
+/**
+ * 案A：マイクロ吸着
+ */
+function snapToIntersection(targetX, targetY) {
+  const radius = 15;
+  const startX = Math.max(0, Math.floor(targetX - radius));
+  const startY = Math.max(0, Math.floor(targetY - radius));
+  const size = radius * 2;
+
+  if (startX + size > canvas.width || startY + size > canvas.height) {
+    return { x: targetX, y: targetY };
+  }
+
+  try {
+    const imgData = ctx.getImageData(startX, startY, size, size);
+    const data = imgData.data;
+    let sumX = 0, sumY = 0, count = 0;
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const idx = (y * size + x) * 4;
+        const brightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+        if (brightness < 120) {
+          sumX += x;
+          sumY += y;
+          count++;
+        }
       }
-      v.src = URL.createObjectURL(file);
-      vBar.style.display = 'flex';
-      v.play();
-      msg.innerText = "動画テスト中";
-      isPaused = false;
-      bPause.innerText = '一時停止 ⏸';
-      startLoop();
-    });
-
-    // 3. 動画コントローラー
-    var vbPlay = document.getElementById('vb-play');
-    vbPlay.addEventListener('click', function() {
-      if (v.paused) { v.play(); vbPlay.innerText = '一時停止 ⏸'; }
-      else { v.pause(); vbPlay.innerText = '再生 ▶'; }
-    });
-    document.getElementById('vb-b1').addEventListener('click', function() { v.currentTime = Math.max(0, v.currentTime - 1); });
-    document.getElementById('vb-f1').addEventListener('click', function() { v.currentTime = Math.min(v.duration || 999, v.currentTime + 1); });
-    document.getElementById('vb-bstep').addEventListener('click', function() { v.pause(); vbPlay.innerText = '再生 ▶'; v.currentTime = Math.max(0, v.currentTime - 0.033); });
-    document.getElementById('vb-fstep').addEventListener('click', function() { v.pause(); vbPlay.innerText = '再生 ▶'; v.currentTime = Math.min(v.duration || 999, v.currentTime + 0.033); });
-
-    v.addEventListener('timeupdate', function() {
-      if (v.duration) vTime.innerText = v.currentTime.toFixed(1) + 's / ' + v.duration.toFixed(1) + 's';
-    });
-
-    // 4. 手動加減算・リセット
-    document.getElementById('b-p01').addEventListener('click', function() { totalDist += 0.1; txtDist.innerText = totalDist.toFixed(2); });
-    document.getElementById('b-m01').addEventListener('click', function() { totalDist = Math.max(0, totalDist - 0.1); txtDist.innerText = totalDist.toFixed(2); });
-    document.getElementById('b-zero').addEventListener('click', function() {
-      totalDist = 0.0;
-      currentSpeed = 0.0;
-      speedSamples = [];
-      txtDist.innerText = "0.00";
-      txtSpeed.innerText = "0.0";
-    });
-    document.getElementById('b-set').addEventListener('click', function() {
-      var val = window.prompt("延線距離(m)を入力:", totalDist.toFixed(2));
-      if (val !== null && !isNaN(parseFloat(val))) {
-        totalDist = Math.max(0, parseFloat(val));
-        txtDist.innerText = totalDist.toFixed(2);
-      }
-    });
-
-    // 5. 測定一時停止
-    bPause.addEventListener('click', function() {
-      isPaused = !isPaused;
-      if (isPaused) {
-        bPause.innerText = '測定再開 ▶';
-        msg.innerText = "測定一時停止中";
-        txtSpeed.innerText = "0.0";
-      } else {
-        bPause.innerText = '一時停止 ⏸';
-        msg.innerText = "測定中";
-        prevProfile = null;
-      }
-    });
-
-    function startLoop() {
-      if (isRunning) return;
-      isRunning = true;
-      requestAnimationFrame(mainLoop);
     }
 
-    // 6. メイン解析ループ
-    function mainLoop(now) {
-      var stage = document.getElementById('stage');
-      var sw = stage.clientWidth;
-      var sh = stage.clientHeight;
-
-      if (overlay.width !== sw || overlay.height !== sh) {
-        overlay.width = sw;
-        overlay.height = sh;
-      }
-
-      // 画面中央の測定枠
-      var bw = Math.floor(sw * 0.85);
-      var bh = 60;
-      var bx = Math.floor((sw - bw) / 2);
-      var by = Math.floor(sh * 0.55 - bh / 2);
-
-      // ガイド枠描画
-      ctxOverlay.clearRect(0, 0, sw, sh);
-      ctxOverlay.strokeStyle = isPaused ? '#94a3b8' : '#22c55e';
-      ctxOverlay.lineWidth = 2;
-      ctxOverlay.strokeRect(bx, by, bw, bh);
-      ctxOverlay.fillStyle = isPaused ? '#94a3b8' : '#22c55e';
-      ctxOverlay.font = '11px sans-serif';
-      ctxOverlay.fillText(isPaused ? '⏸ 測定停止中' : '🎯 ケーブル測定枠', bx, by - 6);
-
-      // 解析処理
-      if (v.readyState >= 2 && v.videoWidth > 0) {
-        var pw = 160;
-        var ph = 20;
-        if (cProc.width !== pw) { cProc.width = pw; cProc.height = ph; }
-
-        var vw = v.videoWidth;
-        var vh = v.videoHeight;
-        var scale = Math.max(sw / vw, sh / vh);
-        var rw = vw * scale;
-        var rh = vh * scale;
-        var ox = (sw - rw) / 2;
-        var oy = (sh - rh) / 2;
-
-        var sx = Math.max(0, (bx - ox) / scale);
-        var sy = Math.max(0, (by - oy) / scale);
-        var swSrc = Math.min(vw - sx, bw / scale);
-        var shSrc = Math.min(vh - sy, bh / scale);
-
-        ctxProc.drawImage(v, sx, sy, swSrc, shSrc, 0, 0, pw, ph);
-        var imgData = ctxProc.getImageData(0, 0, pw, ph).data;
-
-        // 1次元輝度プロファイル抽出
-        var curProf = new Float32Array(pw);
-        for (var x = 0; x < pw; x++) {
-          var sum = 0, cnt = 0;
-          for (var y = 0; y < ph; y++) {
-            var idx = (y * pw + x) * 4;
-            var g = 0.299 * imgData[idx] + 0.587 * imgData[idx+1] + 0.114 * imgData[idx+2];
-            if (g < 235) { sum += g; cnt++; }
-          }
-          curProf[x] = cnt > 0 ? sum / cnt : 0;
-        }
-
-        if (!isPaused && prevProfile) {
-          // シフト量探索
-          var maxS = 10, bestS = 0, minDiff = 999999;
-          for (var s = -maxS; s <= maxS; s++) {
-            var diff = 0;
-            for (var i = maxS; i < pw - maxS; i++) {
-              diff += Math.abs(prevProfile[i] - curProf[i + s]);
-            }
-            if (diff < minDiff) { minDiff = diff; bestS = s; }
-          }
-
-          var shiftPx = bestS * (swSrc / pw);
-          var deltaM = (shiftPx / scaleFactor) / 1000.0;
-          var dt = (now - lastLoopTime) / 1000.0;
-
-          if (Math.abs(deltaM) < 0.04 && Math.abs(deltaM) > 0.0006) {
-            totalDist += deltaM;
-            txtDist.innerText = totalDist.toFixed(2);
-
-            if (dt > 0 && dt < 0.25) {
-              speedSamples.push(Math.max(0, (deltaM / dt) * 60.0));
-            }
-          } else {
-            speedSamples.push(0);
-          }
-
-          // 速度平滑化 (0.5秒平均)
-          if (now - lastSpeedTime > 500) {
-            if (speedSamples.length > 0) {
-              var avg = speedSamples.reduce(function(a, b) { return a + b; }, 0) / speedSamples.length;
-              currentSpeed = currentSpeed * 0.3 + avg * 0.7;
-              speedSamples = [];
-            } else {
-              currentSpeed = 0.0;
-            }
-            txtSpeed.innerText = Math.max(0, currentSpeed).toFixed(1);
-            lastSpeedTime = now;
-          }
-        }
-        prevProfile = curProf;
-
-        // FPSカウント
-        frameCount++;
-        if (now - lastFpsTime > 1000) {
-          txtFps.innerText = frameCount + " FPS";
-          frameCount = 0;
-          lastFpsTime = now;
-        }
-      }
-
-      lastLoopTime = now;
-      requestAnimationFrame(mainLoop);
+    if (count > 10 && count < (size * size * 0.7)) {
+      const cx = startX + (sumX / count);
+      const cy = startY + (sumY / count);
+      return { x: Math.round(cx * 10) / 10, y: Math.round(cy * 10) / 10 };
     }
-  </script>
+  } catch (e) {}
+  return { x: targetX, y: targetY };
+}
+
+function updateLoupe(screenX, screenY, canvasX, canvasY) {
+  loupe.style.display = 'block';
+  const offsetTop = 75;
+  const offsetLeft = 20;
+  let posX = screenX + offsetLeft;
+  let posY = screenY - offsetTop - 140;
+
+  if (posY < 10) posY = screenY + 30;
+  if (posX + 140 > window.innerWidth) posX = screenX - 160;
+
+  loupe.style.left = `${posX}px`;
+  loupe.style.top = `${posY}px`;
+
+  const zoomFactor = 2.5;
+  const sampleSize = 140 / zoomFactor;
+  loupeCtx.clearRect(0, 0, 140, 140);
+  loupeCtx.imageSmoothingEnabled = false;
+
+  loupeCtx.drawImage(
+    canvas,
+    canvasX - sampleSize / 2, canvasY - sampleSize / 2, sampleSize, sampleSize,
+    0, 0, 140, 140
+  );
+}
+
+function hideLoupe() {
+  loupe.style.display = 'none';
+}
+
+function getCanvasCoords(clientX, clientY) {
+  const rect = viewport.getBoundingClientRect();
+  const x = (clientX - rect.left - state.viewX) / state.zoom;
+  const y = (clientY - rect.top - state.viewY) / state.zoom;
+  return { x, y };
+}
+
+/**
+ * タッチ・ポインター制御
+ */
+let isPointerDown = false;
+let startPointerPos = { x: 0, y: 0 };
+let lastPointerPos = { x: 0, y: 0 };
+let lastMoveTime = 0;
+let isMultiTouch = false;
+let pinchStartDistance = 0;
+let pinchStartZoom = 1;
+let pinchCenterCanvas = { x: 0, y: 0 };
+let currentTargetSnapped = null; // 照準合わせ中の確定吸着点
+
+// ピンチイン・アウト（中心位置固定ズーム）
+viewport.addEventListener('touchstart', (e) => {
+  if (e.touches.length >= 2) {
+    isMultiTouch = true;
+    hideLoupe();
+
+    const t1 = e.touches[0];
+    const t2 = e.touches[1];
+    pinchStartDistance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    pinchStartZoom = state.zoom;
+
+    const center = {
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2
+    };
+    const rect = viewport.getBoundingClientRect();
+    pinchCenterCanvas = {
+      x: (center.x - rect.left - state.viewX) / state.zoom,
+      y: (center.y - rect.top - state.viewY) / state.zoom
+    };
+  }
+}, { passive: true });
+
+viewport.addEventListener('touchmove', (e) => {
+  if (isMultiTouch && e.touches.length >= 2) {
+    const t1 = e.touches[0];
+    const t2 = e.touches[1];
+    const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    if (pinchStartDistance > 0) {
+      const scaleFactor = currentDist / pinchStartDistance;
+      const targetZoom = Math.min(Math.max(pinchStartZoom * scaleFactor, state.minZoom), state.maxZoom);
+
+      const currentCenter = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
+
+      const rect = viewport.getBoundingClientRect();
+      state.zoom = targetZoom;
+      state.viewX = (currentCenter.x - rect.left) - pinchCenterCanvas.x * targetZoom;
+      state.viewY = (currentCenter.y - rect.top) - pinchCenterCanvas.y * targetZoom;
+
+      render();
+    }
+  }
+}, { passive: true });
+
+viewport.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) {
+    setTimeout(() => { isMultiTouch = false; }, 140);
+  }
+}, { passive: true });
+
+// 単一ポインター（照準合わせ & 静止判定打点）
+viewport.addEventListener('pointerdown', (e) => {
+  if (isMultiTouch) return;
+  if (e.target !== canvas && e.target !== viewport) return;
+
+  isPointerDown = true;
+  startPointerPos = { x: e.clientX, y: e.clientY };
+  lastPointerPos = { x: e.clientX, y: e.clientY };
+  lastMoveTime = Date.now();
+
+  const coords = getCanvasCoords(e.clientX, e.clientY);
+
+  if (state.mode === 'scale' || state.mode === 'corner') {
+    currentTargetSnapped = snapToIntersection(coords.x, coords.y);
+    updateLoupe(e.clientX, e.clientY, currentTargetSnapped.x, currentTargetSnapped.y);
+  } else if (state.mode === 'trace') {
+    state.currentPoints.push({ x: coords.x, y: coords.y });
+    render();
+  }
+});
+
+viewport.addEventListener('pointermove', (e) => {
+  if (!isPointerDown || isMultiTouch) return;
+
+  const now = Date.now();
+  const coords = getCanvasCoords(e.clientX, e.clientY);
+
+  if (state.mode === 'view') {
+    const dx = e.clientX - lastPointerPos.x;
+    const dy = e.clientY - lastPointerPos.y;
+    state.viewX += dx;
+    state.viewY += dy;
+    lastPointerPos = { x: e.clientX, y: e.clientY };
+    lastMoveTime = now;
+    render();
+    return;
+  }
+
+  if (state.mode === 'scale' || state.mode === 'corner') {
+    // 指を動かしている間、リアルタイムに照準ルーペを追従・吸着更新
+    currentTargetSnapped = snapToIntersection(coords.x, coords.y);
+    updateLoupe(e.clientX, e.clientY, currentTargetSnapped.x, currentTargetSnapped.y);
+    lastPointerPos = { x: e.clientX, y: e.clientY };
+    lastMoveTime = now;
+  } else if (state.mode === 'trace') {
+    state.currentPoints.push({ x: coords.x, y: coords.y });
+    render();
+  }
+});
+
+viewport.addEventListener('pointerup', (e) => {
+  if (!isPointerDown) return;
+  isPointerDown = false;
+  hideLoupe();
+
+  if (isMultiTouch) return;
+
+  const now = Date.now();
+  const timeSinceLastMove = now - lastMoveTime;
+  const distFromStart = Math.hypot(e.clientX - startPointerPos.x, e.clientY - startPointerPos.y);
+
+  // 【静止判定ロジック】
+  // 1. 直前の静止時間（指を止めてから離したか: timeSinceLastMove >= 60ms）
+  // 2. または、指が最初からほとんど動いていない純粋タップ（distFromStart < 12px）
+  // どちらかを満たせば「狙いを定めて静止し、指を離した」と判断して打点
+  const isStationaryRelease = (timeSinceLastMove >= 60) || (distFromStart < 12);
+
+  if ((state.mode === 'corner' || state.mode === 'scale') && isStationaryRelease) {
+    const targetPt = currentTargetSnapped || snapToIntersection(getCanvasCoords(e.clientX, e.clientY).x, getCanvasCoords(e.clientX, e.clientY).y);
+
+    if (state.mode === 'scale') {
+      state.scalePoints.push(targetPt);
+      render();
+      if (state.scalePoints.length === 2) {
+        openScaleModal();
+      }
+    } else if (state.mode === 'corner') {
+      state.currentPoints.push(targetPt);
+      render();
+    }
+  }
+
+  currentTargetSnapped = null;
+});
+
+/**
+ * 距離計算・表示更新
+ */
+function calculateDistance(pts) {
+  if (pts.length < 2) return 0;
+  let pxTotal = 0;
+  for (let i = 1; i < pts.length; i++) {
+    pxTotal += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  }
+  if (!state.scalePxPerMm) return pxTotal;
+  return pxTotal / state.scalePxPerMm;
+}
+
+function updateStats() {
+  const mm = calculateDistance(state.currentPoints);
+  const statEl = document.getElementById('statDistance');
+  if (!state.scalePxPerMm) {
+    statEl.textContent = `${Math.round(mm)} px`;
+    return;
+  }
+  if (state.unit === 'm') {
+    statEl.textContent = `${(mm / 1000).toFixed(2)} m`;
+  } else {
+    statEl.textContent = `${Math.round(mm)} mm`;
+  }
+}
+
+/**
+ * ファイル読込（PDF / 画像）
+ */
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  showToast('図面を読み込み中...');
+
+  if (file.type === 'application/pdf') {
+    const reader = new FileReader();
+    reader.onload = async function() {
+      const typedarray = new Uint8Array(this.result);
+      try {
+        const pdf = await pdfjsLib.getDocument(typedarray).promise;
+        const page = await pdf.getPage(1);
+        const viewportDef = page.getViewport({ scale: 1.5 });
+
+        const offCanvas = document.createElement('canvas');
+        const offCtx = offCanvas.getContext('2d');
+        offCanvas.width = viewportDef.width;
+        offCanvas.height = viewportDef.height;
+
+        await page.render({ canvasContext: offCtx, viewport: viewportDef }).promise;
+        const img = new Image();
+        img.onload = () => { applyLoadedPlan(img, img.src); };
+        img.src = offCanvas.toDataURL('image/jpeg', 0.85);
+      } catch (err) {
+        alert('PDF読込エラー: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      const img = new Image();
+      img.onload = () => { applyLoadedPlan(img, evt.target.result); };
+      img.src = evt.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+function applyLoadedPlan(img, rawDataUrl) {
+  setupCanvasSize(img.width, img.height);
+  state.planImage = img;
+  state.viewX = 0;
+  state.viewY = 0;
+  state.zoom = Math.min(viewport.clientWidth / img.width, viewport.clientHeight / img.height, 1);
+  state.routes = [];
+  state.currentPoints = [];
+  render();
+  saveStorage('savedPlan', rawDataUrl);
+  showToast('図面読込完了');
+}
+
+/**
+ * 縮尺設定モーダル
+ */
+const scaleModal = document.getElementById('scaleModal');
+const scaleInputMm = document.getElementById('scaleInputMm');
+
+function openScaleModal() {
+  scaleInputMm.value = '';
+  scaleModal.classList.add('open');
+}
+
+document.querySelectorAll('.badge-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    scaleInputMm.value = btn.dataset.val;
+  });
+});
+
+document.getElementById('btnConfirmScale').addEventListener('click', () => {
+  const mmVal = parseFloat(scaleInputMm.value);
+  if (!mmVal || mmVal <= 0) {
+    alert('有効な数値を入力してください');
+    return;
+  }
+  const p1 = state.scalePoints[0];
+  const p2 = state.scalePoints[1];
+  const pxDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+
+  state.scalePxPerMm = pxDist / mmVal;
+  saveStorage('scalePxPerMm', state.scalePxPerMm);
+
+  scaleModal.classList.remove('open');
+  state.scalePoints = [];
+  setMode('corner');
+  document.getElementById('scaleStatusBadge').textContent = `1m = ${(state.scalePxPerMm * 1000).toFixed(1)}px`;
+  showToast('縮尺を設定しました');
+  render();
+});
+
+document.getElementById('btnCancelScale').addEventListener('click', () => {
+  scaleModal.classList.remove('open');
+  state.scalePoints = [];
+  setMode('corner');
+  render();
+});
+
+/**
+ * モード切替
+ */
+function setMode(newMode) {
+  state.mode = newMode;
+  ['modeCorner', 'modeTrace', 'modeView'].forEach(id => {
+    document.getElementById(id).classList.remove('active');
+  });
+  if (newMode === 'corner') document.getElementById('modeCorner').classList.add('active');
+  if (newMode === 'trace') document.getElementById('modeTrace').classList.add('active');
+  if (newMode === 'view') document.getElementById('modeView').classList.add('active');
+}
+
+document.getElementById('modeCorner').addEventListener('click', () => setMode('corner'));
+document.getElementById('modeTrace').addEventListener('click', () => setMode('trace'));
+document.getElementById('modeView').addEventListener('click', () => setMode('view'));
+
+document.getElementById('btnSetScale').addEventListener('click', () => {
+  state.mode = 'scale';
+  state.scalePoints = [];
+  showToast('基準となる2点を指定してください');
+  render();
+});
+
+// 操作ボタン
+document.getElementById('btnUndo').addEventListener('click', () => {
+  if (state.currentPoints.length > 0) {
+    state.currentPoints.pop();
+  } else if (state.routes.length > 0) {
+    state.routes.pop();
+  }
+  render();
+});
+
+document.getElementById('btnClear').addEventListener('click', () => {
+  if (confirm('計測線路をすべて消去しますか？')) {
+    state.currentPoints = [];
+    state.routes = [];
+    render();
+  }
+});
+
+document.getElementById('btnUnitToggle').addEventListener('click', () => {
+  state.unit = state.unit === 'm' ? 'mm' : 'm';
+  document.getElementById('btnUnitToggle').textContent = state.unit;
+  updateStats();
+});
+
+// 記録保存 & ログ
+document.getElementById('btnSaveLog').addEventListener('click', () => {
+  if (state.currentPoints.length < 2) {
+    showToast('計測点が不足しています');
+    return;
+  }
+  const dist = calculateDistance(state.currentPoints);
+  const formatted = state.scalePxPerMm
+    ? (state.unit === 'm' ? `${(dist / 1000).toFixed(2)} m` : `${Math.round(dist)} mm`)
+    : `${Math.round(dist)} px`;
+
+  const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const entry = `[${timeStr}] 計測: ${formatted} (点数: ${state.currentPoints.length})`;
+
+  state.logs.push(entry);
+  state.routes.push({ points: [...state.currentPoints] });
+  state.currentPoints = [];
+  saveStorage('logs', state.logs);
+  showToast('記録を保存しました');
+  render();
+});
+
+const logModal = document.getElementById('logModal');
+document.getElementById('btnLogModal').addEventListener('click', () => {
+  const logList = document.getElementById('logList');
+  if (state.logs.length === 0) {
+    logList.innerHTML = '<p style="color:#64748b;">記録がありません</p>';
+  } else {
+    logList.innerHTML = state.logs.map((l, i) => `<div>${i+1}. ${l}</div>`).join('');
+  }
+  logModal.classList.add('open');
+});
+document.getElementById('btnCloseLog').addEventListener('click', () => logModal.classList.remove('open'));
+
+document.getElementById('btnCopyLog').addEventListener('click', () => {
+  if (state.logs.length === 0) return;
+  navigator.clipboard.writeText(state.logs.join('\n')).then(() => {
+    showToast('ログをコピーしました');
+  });
+});
+
+// D-Pad パン操作
+document.querySelectorAll('.dbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const dir = btn.dataset.pan;
+    const step = 45;
+    if (dir === 'up') state.viewY += step;
+    if (dir === 'down') state.viewY -= step;
+    if (dir === 'left') state.viewX += step;
+    if (dir === 'right') state.viewX -= step;
+    render();
+  });
+});
+
+// ズームボタン操作
+document.getElementById('btnZoomIn').addEventListener('click', () => {
+  const cx = viewport.clientWidth / 2;
+  const cy = viewport.clientHeight / 2;
+  const targetZoom = Math.min(state.zoom * 1.3, state.maxZoom);
+  state.viewX = cx - (cx - state.viewX) * (targetZoom / state.zoom);
+  state.viewY = cy - (cy - state.viewY) * (targetZoom / state.zoom);
+  state.zoom = targetZoom;
+  render();
+});
+document.getElementById('btnZoomOut').addEventListener('click', () => {
+  const cx = viewport.clientWidth / 2;
+  const cy = viewport.clientHeight / 2;
+  const targetZoom = Math.max(state.zoom / 1.3, state.minZoom);
+  state.viewX = cx - (cx - state.viewX) * (targetZoom / state.zoom);
+  state.viewY = cy - (cy - state.viewY) * (targetZoom / state.zoom);
+  state.zoom = targetZoom;
+  render();
+});
+document.getElementById('btnZoomReset').addEventListener('click', () => {
+  if (!state.planWidth) return;
+  state.viewX = 0;
+  state.viewY = 0;
+  state.zoom = Math.min(viewport.clientWidth / state.planWidth, viewport.clientHeight / state.planHeight, 1);
+  render();
+});
+
+/**
+ * ページ起動時：IndexedDB復元
+ */
+window.addEventListener('DOMContentLoaded', async () => {
+  await initDB();
+  const savedScale = await loadStorage('scalePxPerMm');
+  if (savedScale) {
+    state.scalePxPerMm = savedScale;
+    document.getElementById('scaleStatusBadge').textContent = `1m = ${(savedScale * 1000).toFixed(1)}px`;
+  }
+  const savedLogs = await loadStorage('logs');
+  if (savedLogs) {
+    state.logs = savedLogs;
+  }
+  const savedPlan = await loadStorage('savedPlan');
+  if (savedPlan) {
+    const img = new Image();
+    img.onload = () => {
+      setupCanvasSize(img.width, img.height);
+      state.planImage = img;
+      state.zoom = Math.min(viewport.clientWidth / img.width, viewport.clientHeight / img.height, 1);
+      render();
+      showToast('前回の図面を復元しました');
+    };
+    img.src = savedPlan;
+  }
+});
+</script>
 </body>
 </html>
